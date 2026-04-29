@@ -60,7 +60,7 @@ type upstreamErrorBody struct {
 
 func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result, error) {
 	if err := ctx.Err(); err != nil {
-		return errorResult("timeout", "image generation timed out"), ErrTimeout
+		return errorResult("timeout", sanitizedMessage("timeout")), ErrTimeout
 	}
 
 	body, err := json.Marshal(generateRequest{
@@ -92,9 +92,9 @@ func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result,
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		if isContextTimeout(ctx, err) {
-			return errorResult("timeout", "image generation timed out"), ErrTimeout
+			return errorResult("timeout", sanitizedMessage("timeout")), ErrTimeout
 		}
-		return errorResult("upstream_error", "upstream request failed"), fmt.Errorf("%w: request failed", ErrUpstream)
+		return errorResult("upstream_error", sanitizedMessage("upstream_error")), fmt.Errorf("%w: %s", ErrUpstream, sanitizedMessage("upstream_error"))
 	}
 	defer resp.Body.Close()
 
@@ -124,7 +124,6 @@ func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result,
 
 func (c Client) handleErrorResponse(resp *http.Response, requestID string) (Result, error) {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	upstreamMessage := parseUpstreamErrorMessage(body)
 
 	code := "upstream_error"
 	sentinel := ErrUpstream
@@ -137,7 +136,7 @@ func (c Client) handleErrorResponse(resp *http.Response, requestID string) (Resu
 		sentinel = ErrContentRejected
 	}
 
-	message := sanitizedMessage(code, upstreamMessage)
+	message := sanitizedMessage(code)
 	return Result{RequestID: requestID, ErrorCode: code, ErrorMessage: message}, fmt.Errorf("%w: %s", sentinel, message)
 }
 
@@ -148,14 +147,6 @@ func requestIDFromResponse(resp *http.Response) string {
 		}
 	}
 	return ""
-}
-
-func parseUpstreamErrorMessage(body []byte) string {
-	var decoded upstreamErrorBody
-	if err := json.Unmarshal(body, &decoded); err == nil && decoded.Error.Message != "" {
-		return decoded.Error.Message
-	}
-	return strings.TrimSpace(string(body))
 }
 
 func isPolicyError(body []byte) bool {
@@ -172,21 +163,17 @@ func isPolicyError(body []byte) bool {
 		strings.Contains(lowerBody, "content")
 }
 
-func sanitizedMessage(code, upstreamMessage string) string {
-	if strings.TrimSpace(upstreamMessage) == "" {
-		switch code {
-		case "content_rejected":
-			return "prompt was rejected by content policy"
-		case "rate_limited":
-			return "upstream rate limit exceeded"
-		default:
-			return "upstream returned an error"
-		}
+func sanitizedMessage(code string) string {
+	switch code {
+	case "content_rejected":
+		return "upstream rejected the requested content"
+	case "rate_limited":
+		return "upstream rate limited the request"
+	case "timeout":
+		return "upstream request timed out"
+	default:
+		return "upstream image generation failed"
 	}
-	if code == "upstream_error" {
-		return "upstream returned an error"
-	}
-	return upstreamMessage
 }
 
 func errorResult(code, message string) Result {

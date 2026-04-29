@@ -91,6 +91,67 @@ func TestGenerateImageMapsContentRejection(t *testing.T) {
 	}
 }
 
+func TestGenerateImageSanitizesClassifiedUpstreamErrors(t *testing.T) {
+	const apiKey = "sk-test-secret-key"
+
+	tests := []struct {
+		name        string
+		status      int
+		body        string
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name:        "bad request policy",
+			status:      http.StatusBadRequest,
+			body:        `{"error":{"code":"content_policy_violation","message":"policy rejected request with sk-test-secret-key"}}`,
+			wantCode:    "content_rejected",
+			wantMessage: "upstream rejected the requested content",
+		},
+		{
+			name:        "forbidden policy",
+			status:      http.StatusForbidden,
+			body:        `{"error":{"code":"content_policy_violation","message":"policy rejected request with sk-test-secret-key"}}`,
+			wantCode:    "content_rejected",
+			wantMessage: "upstream rejected the requested content",
+		},
+		{
+			name:        "rate limited",
+			status:      http.StatusTooManyRequests,
+			body:        `{"error":{"code":"rate_limit_exceeded","message":"too many requests for sk-test-secret-key"}}`,
+			wantCode:    "rate_limited",
+			wantMessage: "upstream rate limited the request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, tt.body, tt.status)
+			}))
+			defer server.Close()
+
+			client := Client{BaseURL: server.URL, APIKey: apiKey, Model: "gpt-image-2", HTTPClient: server.Client()}
+			result, err := client.GenerateImage(context.Background(), "draw a comet", "1024x1024")
+			if err == nil {
+				t.Fatal("generate image error = nil, want classified upstream error")
+			}
+			if result.ErrorCode != tt.wantCode {
+				t.Fatalf("error code = %q, want %q", result.ErrorCode, tt.wantCode)
+			}
+			if result.ErrorMessage != tt.wantMessage {
+				t.Fatalf("error message = %q, want %q", result.ErrorMessage, tt.wantMessage)
+			}
+			if strings.Contains(err.Error(), apiKey) {
+				t.Fatalf("error %q contains API key", err.Error())
+			}
+			if strings.Contains(result.ErrorMessage, apiKey) {
+				t.Fatalf("result error message %q contains API key", result.ErrorMessage)
+			}
+		})
+	}
+}
+
 func TestGenerateImageMapsTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
