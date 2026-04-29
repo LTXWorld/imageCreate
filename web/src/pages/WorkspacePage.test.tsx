@@ -33,12 +33,14 @@ describe("WorkspacePage", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementation(() =>
         jsonResponse({
-          id: "task-1",
-          prompt: "一只杯子",
-          ratio: "1:1",
-          size: "1024x1024",
-          status: "queued",
-          created_at: "2026-04-30T08:00:00Z",
+          task: {
+            id: "task-1",
+            prompt: "一只杯子",
+            ratio: "1:1",
+            size: "1024x1024",
+            status: "queued",
+            created_at: "2026-04-30T08:00:00Z",
+          },
         }),
       );
 
@@ -63,22 +65,26 @@ describe("WorkspacePage", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockImplementationOnce(() =>
         jsonResponse({
-          id: "task-2",
-          prompt: "山谷",
-          ratio: "16:9",
-          size: "1024x576",
-          status: "queued",
-          created_at: "2026-04-30T08:00:00Z",
+          task: {
+            id: "task-2",
+            prompt: "山谷",
+            ratio: "16:9",
+            size: "1024x576",
+            status: "queued",
+            created_at: "2026-04-30T08:00:00Z",
+          },
         }),
       )
       .mockImplementation(() =>
         jsonResponse({
-          id: "task-2",
-          prompt: "山谷",
-          ratio: "16:9",
-          size: "1024x576",
-          status: "running",
-          created_at: "2026-04-30T08:00:00Z",
+          task: {
+            id: "task-2",
+            prompt: "山谷",
+            ratio: "16:9",
+            size: "1024x576",
+            status: "running",
+            created_at: "2026-04-30T08:00:00Z",
+          },
         }),
       );
 
@@ -99,14 +105,16 @@ describe("WorkspacePage", () => {
   test("shows Chinese failure message from API", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       jsonResponse({
-        id: "task-3",
-        prompt: "海边",
-        ratio: "1:1",
-        size: "1024x1024",
-        status: "failed",
-        error_message: "生成失败：余额不足",
-        created_at: "2026-04-30T08:00:00Z",
-        completed_at: "2026-04-30T08:01:00Z",
+        task: {
+          id: "task-3",
+          prompt: "海边",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "failed",
+          error_message: "生成失败：余额不足",
+          created_at: "2026-04-30T08:00:00Z",
+          completed_at: "2026-04-30T08:01:00Z",
+        },
       }),
     );
 

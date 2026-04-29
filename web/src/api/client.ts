@@ -38,6 +38,10 @@ type ApiGenerationTask = Omit<
   imageUrl?: string;
 };
 
+type WrappedGenerationTask = {
+  task?: ApiGenerationTask;
+};
+
 export type AuthResponse = {
   user: User;
 };
@@ -77,7 +81,8 @@ export function normalizeAuthResponse(body: ApiUser | { user: ApiUser }): AuthRe
   return { user: normalizeUser(user) };
 }
 
-export function normalizeGenerationTask(task: ApiGenerationTask): GenerationTask {
+export function normalizeGenerationTask(body: ApiGenerationTask | WrappedGenerationTask): GenerationTask {
+  const task = "task" in body && body.task ? body.task : body as ApiGenerationTask;
   const id = String(task.id);
   const status = task.status;
   const imageUrl =

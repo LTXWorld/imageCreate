@@ -153,26 +153,51 @@ func (h Handlers) Image(w http.ResponseWriter, r *http.Request) {
 }
 
 type taskResponse struct {
-	ID        string `json:"id"`
-	Prompt    string `json:"prompt"`
-	Size      string `json:"size"`
-	Status    string `json:"status"`
-	ErrorCode string `json:"error_code,omitempty"`
-	Message   string `json:"message,omitempty"`
+	ID          string     `json:"id"`
+	Prompt      string     `json:"prompt"`
+	Ratio       string     `json:"ratio"`
+	Size        string     `json:"size"`
+	Status      string     `json:"status"`
+	ErrorCode   string     `json:"error_code,omitempty"`
+	Message     string     `json:"message,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 func newTaskResponse(task Task) taskResponse {
 	resp := taskResponse{
-		ID:     task.ID,
-		Prompt: task.Prompt,
-		Size:   task.Size,
-		Status: task.Status,
+		ID:        task.ID,
+		Prompt:    task.Prompt,
+		Ratio:     ratioFromSize(task.Size),
+		Size:      task.Size,
+		Status:    task.Status,
+		CreatedAt: task.CreatedAt,
+	}
+	if task.CompletedAt.Valid {
+		resp.CompletedAt = &task.CompletedAt.Time
 	}
 	if task.Status == models.TaskFailed {
 		resp.ErrorCode = stableErrorCode(task.ErrorCode)
 		resp.Message = userFacingFailureMessage(resp.ErrorCode)
 	}
 	return resp
+}
+
+func ratioFromSize(size string) string {
+	switch size {
+	case "1024x1024":
+		return "1:1"
+	case "768x1024":
+		return "3:4"
+	case "1024x768":
+		return "4:3"
+	case "720x1280":
+		return "9:16"
+	case "1280x720", "1792x1024":
+		return "16:9"
+	default:
+		return size
+	}
 }
 
 func stableErrorCode(code string) string {

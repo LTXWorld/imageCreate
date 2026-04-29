@@ -57,13 +57,30 @@ func TestCreateGenerationReturnsQueuedTask(t *testing.T) {
 	}
 
 	var resp struct {
-		Task Task `json:"task"`
+		Task struct {
+			ID          string `json:"id"`
+			Prompt      string `json:"prompt"`
+			Ratio       string `json:"ratio"`
+			Size        string `json:"size"`
+			Status      string `json:"status"`
+			CreatedAt   string `json:"created_at"`
+			CompletedAt string `json:"completed_at,omitempty"`
+		} `json:"task"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if resp.Task.Status != models.TaskQueued {
 		t.Fatalf("task status = %q, want %q", resp.Task.Status, models.TaskQueued)
+	}
+	if resp.Task.Ratio != "1:1" {
+		t.Fatalf("task ratio = %q, want 1:1", resp.Task.Ratio)
+	}
+	if resp.Task.CreatedAt == "" {
+		t.Fatal("task created_at is empty")
+	}
+	if resp.Task.CompletedAt != "" {
+		t.Fatalf("task completed_at = %q, want empty for queued task", resp.Task.CompletedAt)
 	}
 }
 

@@ -2,9 +2,11 @@ package generations
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -47,6 +49,8 @@ type Task struct {
 	ImagePath    string
 	ErrorCode    string
 	ErrorMessage string
+	CreatedAt    time.Time
+	CompletedAt  sql.NullTime
 }
 
 func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {
@@ -250,7 +254,9 @@ const taskSelectSQL = `
 		status,
 		COALESCE(image_path, ''),
 		COALESCE(error_code, ''),
-		COALESCE(error_message, '')
+		COALESCE(error_message, ''),
+		created_at,
+		completed_at
 	FROM generation_tasks
 `
 
@@ -269,6 +275,8 @@ func scanTask(scanner taskScanner) (Task, error) {
 		&task.ImagePath,
 		&task.ErrorCode,
 		&task.ErrorMessage,
+		&task.CreatedAt,
+		&task.CompletedAt,
 	)
 	if err != nil {
 		return Task{}, err
@@ -330,7 +338,9 @@ func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model stri
 			status,
 			COALESCE(image_path, ''),
 			COALESCE(error_code, ''),
-			COALESCE(error_message, '')
+			COALESCE(error_message, ''),
+			created_at,
+			completed_at
 	`, userID, prompt, size, models.TaskQueued, model).Scan(
 		&task.ID,
 		&task.UserID,
@@ -340,6 +350,8 @@ func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model stri
 		&task.ImagePath,
 		&task.ErrorCode,
 		&task.ErrorMessage,
+		&task.CreatedAt,
+		&task.CompletedAt,
 	)
 	if err != nil {
 		if isActiveTaskUniqueViolation(err) {

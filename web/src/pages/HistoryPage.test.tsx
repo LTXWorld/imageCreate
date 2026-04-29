@@ -17,28 +17,30 @@ describe("HistoryPage", () => {
     vi.restoreAllMocks();
   });
 
-  test("renders history without showing other users", async () => {
+  test("renders only tasks returned by the API response", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      await jsonResponse([
-        {
-          id: "task-1",
-          prompt: "我的山谷",
-          ratio: "16:9",
-          size: "1024x576",
-          status: "succeeded",
-          created_at: "2026-04-30T08:00:00Z",
-          completed_at: "2026-04-30T08:01:00Z",
-        },
-        {
-          id: "task-2",
-          prompt: "我的港口",
-          ratio: "4:3",
-          size: "1024x768",
-          status: "failed",
-          error_message: "生成失败",
-          created_at: "2026-04-30T09:00:00Z",
-        },
-      ]),
+      await jsonResponse({
+        tasks: [
+          {
+            id: "task-1",
+            prompt: "我的山谷",
+            ratio: "16:9",
+            size: "1024x576",
+            status: "succeeded",
+            created_at: "2026-04-30T08:00:00Z",
+            completed_at: "2026-04-30T08:01:00Z",
+          },
+          {
+            id: "task-2",
+            prompt: "我的港口",
+            ratio: "4:3",
+            size: "1024x768",
+            status: "failed",
+            error_message: "生成失败",
+            created_at: "2026-04-30T09:00:00Z",
+          },
+        ],
+      }),
     );
 
     render(<HistoryPage />);
@@ -48,6 +50,7 @@ describe("HistoryPage", () => {
     });
 
     expect(screen.getByText("我的港口")).toBeInTheDocument();
+    // The frontend can only render tasks returned by the user-scoped API.
     expect(screen.queryByText("其他用户的图片")).not.toBeInTheDocument();
   });
 });

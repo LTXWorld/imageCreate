@@ -93,6 +93,12 @@ func TestCreateTaskDebitsOneCredit(t *testing.T) {
 	if task.Status != models.TaskQueued {
 		t.Fatalf("task status = %q, want %q", task.Status, models.TaskQueued)
 	}
+	if task.CreatedAt.IsZero() {
+		t.Fatal("task created_at is zero")
+	}
+	if task.CompletedAt.Valid {
+		t.Fatalf("task completed_at valid = true, want false for queued task")
+	}
 	if got := creditBalance(t, ctx, db, userID); got != 2 {
 		t.Fatalf("credit_balance = %d, want 2", got)
 	}
