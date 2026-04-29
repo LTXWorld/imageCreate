@@ -65,7 +65,7 @@ Create this structure:
 │   │       ├── worker.go
 │   │       └── worker_test.go
 │   └── migrations
-│       └── 000001_initial.sql
+│       └── 000001_initial.up.sql
 ├── docs
 │   └── superpowers
 │       ├── plans
@@ -344,7 +344,7 @@ Run: `git add . && git commit -m "chore: scaffold app configuration"`
 ### Task 2: Database Schema And Test Database Helpers
 
 **Files:**
-- Create: `api/migrations/000001_initial.sql`
+- Create: `api/migrations/000001_initial.up.sql`
 - Create: `api/internal/database/db.go`
 - Create: `api/internal/database/migrations.go`
 - Create: `api/internal/database/testdb.go`
@@ -352,7 +352,7 @@ Run: `git add . && git commit -m "chore: scaffold app configuration"`
 
 - [ ] **Step 1: Write migration with schema**
 
-Create `api/migrations/000001_initial.sql`:
+Create `api/migrations/000001_initial.up.sql`:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
