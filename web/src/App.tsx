@@ -55,9 +55,15 @@ export function App() {
     setView("login");
   }
 
-  const content = checkingSession ? (
-    <section className="panel status-panel">正在确认登录状态...</section>
-  ) : view === "register" ? (
+  if (checkingSession) {
+    return (
+      <main className="startup-shell">
+        <section className="panel status-panel">正在确认登录状态...</section>
+      </main>
+    );
+  }
+
+  const content = view === "register" ? (
     <RegisterPage onRegister={handleAuthenticated} onLoginClick={() => setView("login")} />
   ) : view === "workspace" ? (
     <RequireAuth

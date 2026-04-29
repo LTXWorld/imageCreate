@@ -180,6 +180,14 @@ button:disabled {
   padding: 34px 32px;
 }
 
+.startup-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #f4f1eb;
+}
+
 .auth-surface,
 .workspace-panel,
 .panel {

@@ -32,6 +32,9 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByText("正在确认登录状态...")).toBeInTheDocument();
+    expect(screen.queryByText("未登录")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "登录" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "注册" })).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText("alice")).toBeInTheDocument();
