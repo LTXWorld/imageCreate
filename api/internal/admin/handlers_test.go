@@ -127,6 +127,80 @@ func TestAdminCanAdjustCredits(t *testing.T) {
 	if ledgerRows != 1 {
 		t.Fatalf("admin_adjustment ledger rows = %d, want 1", ledgerRows)
 	}
+
+	var auditRows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM audit_logs
+		WHERE actor_user_id = $1 AND target_user_id = $2 AND action = 'adjust_credits'
+	`, adminID, userID).Scan(&auditRows); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("adjust_credits audit rows = %d, want 1", auditRows)
+	}
+}
+
+func TestAdminAdjustCreditsRollsBackWhenAuditFails(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "atomic-credit-admin", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "atomic-credit-user", models.RoleUser, 4)
+
+	if _, err := db.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION fail_adjust_credits_audit_for_test()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			IF NEW.action = 'adjust_credits' THEN
+				RAISE EXCEPTION 'forced audit failure';
+			END IF;
+			RETURN NEW;
+		END;
+		$$;
+	`); err != nil {
+		t.Fatalf("create audit failure function: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		CREATE TRIGGER fail_adjust_credits_audit_for_test
+		BEFORE INSERT ON audit_logs
+		FOR EACH ROW
+		EXECUTE FUNCTION fail_adjust_credits_audit_for_test();
+	`); err != nil {
+		t.Fatalf("create audit failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(context.Background(), `DROP TRIGGER IF EXISTS fail_adjust_credits_audit_for_test ON audit_logs`)
+		_, _ = db.Exec(context.Background(), `DROP FUNCTION IF EXISTS fail_adjust_credits_audit_for_test()`)
+	})
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/credits", `{"amount":3,"reason":"manual top-up"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	var balance int
+	if err := db.QueryRow(ctx, `SELECT credit_balance FROM users WHERE id = $1`, userID).Scan(&balance); err != nil {
+		t.Fatalf("query balance: %v", err)
+	}
+	if balance != 4 {
+		t.Fatalf("credit_balance = %d, want unchanged 4", balance)
+	}
+
+	var ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1 AND type = $2 AND amount = 3
+	`, userID, models.LedgerAdminAdjustment).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count ledger rows: %v", err)
+	}
+	if ledgerRows != 0 {
+		t.Fatalf("admin_adjustment ledger rows = %d, want 0", ledgerRows)
+	}
 }
 
 func TestAdminGenerationListDoesNotReturnImageURL(t *testing.T) {

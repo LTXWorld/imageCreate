@@ -21,15 +21,11 @@ import (
 )
 
 type Handlers struct {
-	DB      *pgxpool.Pool
-	Credits credits.Service
+	DB *pgxpool.Pool
 }
 
 func NewHandlers(db *pgxpool.Pool) Handlers {
-	return Handlers{
-		DB:      db,
-		Credits: credits.Service{DB: db},
-	}
+	return Handlers{DB: db}
 }
 
 func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -140,28 +136,23 @@ func (h Handlers) AdjustCredits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Credits.Adjust(r.Context(), userID, req.Amount, req.Reason, actor.ID); err != nil {
-		writeCreditError(w, err)
-		return
-	}
-
 	tx, err := h.DB.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
 		return
 	}
 	defer tx.Rollback(r.Context())
+
+	user, err := adjustCredits(r.Context(), tx, userID, req.Amount, req.Reason, actor.ID)
+	if err != nil {
+		writeCreditError(w, err)
+		return
+	}
 	if err := insertAuditLog(r.Context(), tx, actor.ID, userID, "adjust_credits", map[string]any{"amount": req.Amount, "reason": req.Reason}); err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "服务器错误")
-		return
-	}
-
-	user, err := h.userByID(r.Context(), userID)
-	if err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
 		return
 	}
@@ -409,6 +400,40 @@ func updateUserStatus(ctx context.Context, tx pgx.Tx, userID, status string) (us
 		RETURNING id::text, username, role, status, credit_balance, created_at, updated_at
 	`, userID, status).Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt)
 	return user, err
+}
+
+func adjustCredits(ctx context.Context, tx pgx.Tx, userID string, amount int, reason string, actorUserID string) (userResponse, error) {
+	var user userResponse
+	err := tx.QueryRow(ctx, `
+		UPDATE users
+		SET credit_balance = credit_balance + $2,
+			updated_at = now()
+		WHERE id = $1::uuid
+			AND credit_balance + $2 >= 0
+		RETURNING id::text, username, role, status, credit_balance, created_at, updated_at
+	`, userID, amount).Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1::uuid)`, userID).Scan(&exists); err != nil {
+			return userResponse{}, err
+		}
+		if !exists {
+			return userResponse{}, credits.ErrUserNotFound
+		}
+		return userResponse{}, credits.ErrInsufficientCredits
+	}
+	if err != nil {
+		return userResponse{}, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO credit_ledger (user_id, type, amount, balance_after, reason, actor_user_id)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)
+	`, userID, models.LedgerAdminAdjustment, amount, user.CreditBalance, reason, actorUserID); err != nil {
+		return userResponse{}, err
+	}
+
+	return user, nil
 }
 
 func insertAuditLog(ctx context.Context, tx pgx.Tx, actorUserID, targetUserID, action string, metadata map[string]any) error {
