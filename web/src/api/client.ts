@@ -19,8 +19,51 @@ export type GenerationTask = {
   completedAt?: string;
 };
 
+export type AdminUser = User & {
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminInvite = {
+  id: string;
+  code: string;
+  initialCredits: number;
+  status: "unused" | "used";
+  createdBy?: string;
+  usedBy?: string;
+  usedAt?: string;
+  createdAt: string;
+};
+
+export type AdminAuditLog = {
+  id: string;
+  actorUserId?: string;
+  targetUserId?: string;
+  action: string;
+  metadata: unknown;
+  createdAt: string;
+};
+
+export type AdminGenerationTask = {
+  id: string;
+  userId: string;
+  username: string;
+  prompt: string;
+  size: string;
+  status: GenerationTask["status"];
+  latencyMs: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
 type ApiUser = User & {
   credit_balance?: number;
+  created_at?: string;
+  createdAt?: string;
+  updated_at?: string;
+  updatedAt?: string;
 };
 
 type ApiGenerationTask = Omit<
@@ -40,6 +83,54 @@ type ApiGenerationTask = Omit<
 
 type WrappedGenerationTask = {
   task?: ApiGenerationTask;
+};
+
+type ApiInvite = {
+  id: string;
+  code: string;
+  initial_credits?: number;
+  initialCredits?: number;
+  status: "unused" | "used";
+  created_by?: string;
+  createdBy?: string;
+  used_by?: string;
+  usedBy?: string;
+  used_at?: string;
+  usedAt?: string;
+  created_at?: string;
+  createdAt?: string;
+};
+
+type ApiAuditLog = {
+  id: string;
+  actor_user_id?: string;
+  actorUserId?: string;
+  target_user_id?: string;
+  targetUserId?: string;
+  action: string;
+  metadata: unknown;
+  created_at?: string;
+  createdAt?: string;
+};
+
+type ApiAdminGenerationTask = {
+  id: string;
+  user_id?: string;
+  userId?: string;
+  username: string;
+  prompt: string;
+  size: string;
+  status: GenerationTask["status"];
+  latency_ms?: number;
+  latencyMs?: number;
+  error_code?: string;
+  errorCode?: string;
+  error_message?: string;
+  errorMessage?: string;
+  created_at?: string;
+  createdAt?: string;
+  completed_at?: string;
+  completedAt?: string;
 };
 
 export type AuthResponse = {
@@ -63,6 +154,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       .catch(() => ({ message: "请求失败" }));
     throw new Error(body.message ?? body.error ?? "请求失败");
   }
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
 
@@ -73,6 +167,14 @@ export function normalizeUser(user: ApiUser): User {
     role: user.role,
     status: user.status,
     creditBalance: user.creditBalance ?? user.credit_balance ?? 0,
+  };
+}
+
+export function normalizeAdminUser(user: ApiUser): AdminUser {
+  return {
+    ...normalizeUser(user),
+    createdAt: user.createdAt ?? user.created_at ?? "",
+    updatedAt: user.updatedAt ?? user.updated_at ?? "",
   };
 }
 
@@ -115,5 +217,79 @@ export function normalizeGenerationList(body: unknown): GenerationTask[] {
 
   return Array.isArray(source)
     ? source.map((task) => normalizeGenerationTask(task as ApiGenerationTask))
+    : [];
+}
+
+export function normalizeAdminUsers(body: unknown): AdminUser[] {
+  const source = typeof body === "object" && body !== null && "users" in body
+    ? (body as { users: unknown }).users
+    : [];
+  return Array.isArray(source) ? source.map((user) => normalizeAdminUser(user as ApiUser)) : [];
+}
+
+export function normalizeAdminInvites(body: unknown): AdminInvite[] {
+  const source = typeof body === "object" && body !== null && "invites" in body
+    ? (body as { invites: unknown }).invites
+    : [];
+
+  return Array.isArray(source)
+    ? source.map((invite) => {
+      const item = invite as ApiInvite;
+      return {
+        id: item.id,
+        code: item.code,
+        initialCredits: item.initialCredits ?? item.initial_credits ?? 0,
+        status: item.status,
+        createdBy: item.createdBy ?? item.created_by,
+        usedBy: item.usedBy ?? item.used_by,
+        usedAt: item.usedAt ?? item.used_at,
+        createdAt: item.createdAt ?? item.created_at ?? "",
+      };
+    })
+    : [];
+}
+
+export function normalizeAdminAuditLogs(body: unknown): AdminAuditLog[] {
+  const source = typeof body === "object" && body !== null && "audit_logs" in body
+    ? (body as { audit_logs: unknown }).audit_logs
+    : [];
+
+  return Array.isArray(source)
+    ? source.map((log) => {
+      const item = log as ApiAuditLog;
+      return {
+        id: item.id,
+        actorUserId: item.actorUserId ?? item.actor_user_id,
+        targetUserId: item.targetUserId ?? item.target_user_id,
+        action: item.action,
+        metadata: item.metadata,
+        createdAt: item.createdAt ?? item.created_at ?? "",
+      };
+    })
+    : [];
+}
+
+export function normalizeAdminGenerationTasks(body: unknown): AdminGenerationTask[] {
+  const source = typeof body === "object" && body !== null && "tasks" in body
+    ? (body as { tasks: unknown }).tasks
+    : [];
+
+  return Array.isArray(source)
+    ? source.map((task) => {
+      const item = task as ApiAdminGenerationTask;
+      return {
+        id: item.id,
+        userId: item.userId ?? item.user_id ?? "",
+        username: item.username,
+        prompt: item.prompt,
+        size: item.size,
+        status: item.status,
+        latencyMs: item.latencyMs ?? item.latency_ms ?? 0,
+        errorCode: item.errorCode ?? item.error_code,
+        errorMessage: item.errorMessage ?? item.error_message,
+        createdAt: item.createdAt ?? item.created_at ?? "",
+        completedAt: item.completedAt ?? item.completed_at,
+      };
+    })
     : [];
 }

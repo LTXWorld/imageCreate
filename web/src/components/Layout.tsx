@@ -6,8 +6,8 @@ import type { User } from "../api/client";
 type LayoutProps = {
   children: ReactNode;
   user: User | null;
-  activeView: "login" | "register" | "workspace";
-  onNavigate: (view: "login" | "register" | "workspace") => void;
+  activeView: "login" | "register" | "workspace" | "admin";
+  onNavigate: (view: "login" | "register" | "workspace" | "admin") => void;
   onLogout?: () => void;
 };
 
@@ -37,6 +37,16 @@ export function Layout({
             <ImagePlus size={18} aria-hidden="true" />
             <span>创作台</span>
           </button>
+          {user?.role === "admin" ? (
+            <button
+              className={activeView === "admin" ? "nav-item active" : "nav-item"}
+              type="button"
+              onClick={() => onNavigate("admin")}
+            >
+              <ShieldCheck size={18} aria-hidden="true" />
+              <span>后台</span>
+            </button>
+          ) : null}
           {!user ? (
             <>
               <button

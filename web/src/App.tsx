@@ -3,13 +3,14 @@ import { useCallback, useEffect, useState } from "react";
 import { api, normalizeAuthResponse, type User } from "./api/client";
 import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
+import { AdminPage } from "./pages/AdminPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import "./styles/app.css";
 
-type View = "login" | "register" | "workspace" | "history";
+type View = "login" | "register" | "workspace" | "history" | "admin";
 
 export function App() {
   const [view, setView] = useState<View>("login");
@@ -26,7 +27,7 @@ export function App() {
           body as Parameters<typeof normalizeAuthResponse>[0],
         );
         setUser(currentUser);
-        setView("workspace");
+        setView(currentUser.role === "admin" ? "admin" : "workspace");
       })
       .catch(() => {
         if (!active) return;
@@ -45,7 +46,7 @@ export function App() {
 
   const handleAuthenticated = useCallback((currentUser: User) => {
     setUser(currentUser);
-    setView("workspace");
+    setView(currentUser.role === "admin" ? "admin" : "workspace");
   }, []);
 
   const handleUnauthenticated = useCallback(() => {
@@ -69,6 +70,14 @@ export function App() {
 
   const content = view === "register" ? (
     <RegisterPage onRegister={handleAuthenticated} onLoginClick={() => setView("login")} />
+  ) : view === "admin" ? (
+    <RequireAuth
+      user={user}
+      onAuthenticated={handleAuthenticated}
+      onUnauthenticated={handleUnauthenticated}
+    >
+      {user ? <AdminPage user={user} /> : null}
+    </RequireAuth>
   ) : view === "history" ? (
     <RequireAuth
       user={user}

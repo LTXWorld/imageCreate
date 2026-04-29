@@ -1,0 +1,442 @@
+import { FormEvent, useEffect, useState } from "react";
+
+import {
+  api,
+  normalizeAdminAuditLogs,
+  normalizeAdminGenerationTasks,
+  normalizeAdminInvites,
+  normalizeAdminUsers,
+  type AdminAuditLog,
+  type AdminGenerationTask,
+  type AdminInvite,
+  type AdminUser,
+  type User,
+} from "../api/client";
+
+type AdminPageProps = {
+  user: User;
+};
+
+type AdminTab = "users" | "invites" | "credits" | "audit";
+
+type CreditDraft = {
+  amount: string;
+  reason: string;
+};
+
+const tabs: Array<{ id: AdminTab; label: string }> = [
+  { id: "users", label: "用户" },
+  { id: "invites", label: "邀请码" },
+  { id: "credits", label: "额度" },
+  { id: "audit", label: "审计" },
+];
+
+function formatTime(value: string | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function metadataText(value: unknown) {
+  if (!value) return "-";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+export function AdminPage({ user }: AdminPageProps) {
+  const [activeTab, setActiveTab] = useState<AdminTab>("users");
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [invites, setInvites] = useState<AdminInvite[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
+  const [generationTasks, setGenerationTasks] = useState<AdminGenerationTask[]>([]);
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCredits, setInviteCredits] = useState("5");
+  const [creditDrafts, setCreditDrafts] = useState<Record<string, CreditDraft>>({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (user.role !== "admin") {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    setError("");
+    setLoading(true);
+
+    Promise.all([
+      api<unknown>("/api/admin/users"),
+      api<unknown>("/api/admin/invites"),
+      api<unknown>("/api/admin/audit-logs"),
+      api<unknown>("/api/admin/generation-tasks"),
+    ])
+      .then(([usersBody, invitesBody, auditBody, tasksBody]) => {
+        if (!active) return;
+        setUsers(normalizeAdminUsers(usersBody));
+        setInvites(normalizeAdminInvites(invitesBody));
+        setAuditLogs(normalizeAdminAuditLogs(auditBody));
+        setGenerationTasks(normalizeAdminGenerationTasks(tasksBody));
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "加载后台数据失败");
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user.role]);
+
+  if (user.role !== "admin") {
+    return (
+      <section className="admin-page" aria-labelledby="admin-title">
+        <div className="section-heading">
+          <p className="eyebrow">管理后台</p>
+          <h2 id="admin-title">无权访问</h2>
+        </div>
+        <div className="panel history-empty">当前账号不是管理员。</div>
+      </section>
+    );
+  }
+
+  async function handleCreateInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy("invite");
+    setError("");
+
+    try {
+      const body = await api<{ invite: unknown }>("/api/admin/invites", {
+        method: "POST",
+        body: JSON.stringify({
+          code: inviteCode.trim(),
+          initial_credits: Number(inviteCredits),
+        }),
+      });
+      const [invite] = normalizeAdminInvites({ invites: [body.invite] });
+      if (invite) {
+        setInvites((current) => [invite, ...current]);
+      }
+      setInviteCode("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建邀请码失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleStatusChange(target: AdminUser, status: AdminUser["status"]) {
+    setBusy(`status-${target.id}`);
+    setError("");
+
+    try {
+      const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      const [updated] = normalizeAdminUsers({ users: [body.user] });
+      if (updated) {
+        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新用户状态失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleCreditSubmit(event: FormEvent<HTMLFormElement>, target: AdminUser) {
+    event.preventDefault();
+    const draft = creditDrafts[target.id] ?? { amount: "", reason: "" };
+
+    setBusy(`credits-${target.id}`);
+    setError("");
+
+    try {
+      const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/credits`, {
+        method: "POST",
+        body: JSON.stringify({
+          amount: Number(draft.amount),
+          reason: draft.reason.trim(),
+        }),
+      });
+      const [updated] = normalizeAdminUsers({ users: [body.user] });
+      if (updated) {
+        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      setCreditDrafts((current) => ({
+        ...current,
+        [target.id]: { amount: "", reason: "" },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "调整额度失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function updateCreditDraft(userID: string, patch: Partial<CreditDraft>) {
+    setCreditDrafts((current) => ({
+      ...current,
+      [userID]: {
+        amount: current[userID]?.amount ?? "",
+        reason: current[userID]?.reason ?? "",
+        ...patch,
+      },
+    }));
+  }
+
+  return (
+    <section className="admin-page" aria-labelledby="admin-title">
+      <div className="section-toolbar">
+        <div className="section-heading">
+          <p className="eyebrow">管理后台</p>
+          <h2 id="admin-title">管理员控制台</h2>
+        </div>
+      </div>
+
+      <div className="admin-tabs" role="tablist" aria-label="后台模块">
+        {tabs.map((tab) => (
+          <button
+            aria-selected={activeTab === tab.id}
+            className={activeTab === tab.id ? "admin-tab active" : "admin-tab"}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            role="tab"
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {loading ? <div className="panel history-empty">正在加载后台数据...</div> : null}
+
+      {!loading && activeTab === "users" ? (
+        <section className="admin-section panel" aria-labelledby="users-title">
+          <h3 id="users-title">用户管理</h3>
+          <div className="table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>用户名</th>
+                  <th>角色</th>
+                  <th>状态</th>
+                  <th>余额</th>
+                  <th>注册时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.username}</td>
+                    <td>{item.role}</td>
+                    <td>{item.status}</td>
+                    <td>{item.creditBalance} 点</td>
+                    <td>{formatTime(item.createdAt)}</td>
+                    <td>
+                      <button
+                        className="secondary-button compact-button"
+                        disabled={busy === `status-${item.id}`}
+                        onClick={() => void handleStatusChange(item, item.status === "active" ? "disabled" : "active")}
+                        type="button"
+                      >
+                        {item.status === "active" ? "禁用" : "启用"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {!loading && activeTab === "invites" ? (
+        <section className="admin-grid">
+          <form className="admin-section panel compact-form" onSubmit={handleCreateInvite}>
+            <h3>创建邀请码</h3>
+            <label className="field">
+              <span>邀请码</span>
+              <input
+                onChange={(event) => setInviteCode(event.target.value)}
+                placeholder="留空自动生成"
+                value={inviteCode}
+              />
+            </label>
+            <label className="field">
+              <span>初始额度</span>
+              <input
+                min="0"
+                onChange={(event) => setInviteCredits(event.target.value)}
+                required
+                type="number"
+                value={inviteCredits}
+              />
+            </label>
+            <button className="primary-button" disabled={busy === "invite"} type="submit">
+              创建邀请码
+            </button>
+          </form>
+
+          <section className="admin-section panel" aria-label="邀请码列表">
+            <h3>邀请码列表</h3>
+            <div className="table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>邀请码</th>
+                    <th>初始额度</th>
+                    <th>状态</th>
+                    <th>创建时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invites.map((invite) => (
+                    <tr key={invite.id}>
+                      <td>{invite.code}</td>
+                      <td>{invite.initialCredits} 点</td>
+                      <td>{invite.status}</td>
+                      <td>{formatTime(invite.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      ) : null}
+
+      {!loading && activeTab === "credits" ? (
+        <section className="admin-section panel" aria-labelledby="credits-title">
+          <h3 id="credits-title">额度管理</h3>
+          <div className="table-wrap">
+            <table className="admin-table credit-table">
+              <thead>
+                <tr>
+                  <th>用户名</th>
+                  <th>当前余额</th>
+                  <th>调整值</th>
+                  <th>原因</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((item) => {
+                  const draft = creditDrafts[item.id] ?? { amount: "", reason: "" };
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.username}</td>
+                      <td>{item.creditBalance} 点</td>
+                      <td>
+                        <input
+                          aria-label={`调整 ${item.username} 的积分`}
+                          className="table-input number-input"
+                          onChange={(event) => updateCreditDraft(item.id, { amount: event.target.value })}
+                          type="number"
+                          value={draft.amount}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          aria-label={`调整 ${item.username} 的原因`}
+                          className="table-input"
+                          onChange={(event) => updateCreditDraft(item.id, { reason: event.target.value })}
+                          value={draft.reason}
+                        />
+                      </td>
+                      <td>
+                        <form onSubmit={(event) => void handleCreditSubmit(event, item)}>
+                          <button
+                            className="primary-button compact-button"
+                            disabled={busy === `credits-${item.id}`}
+                            type="submit"
+                          >
+                            提交调整
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {!loading && activeTab === "audit" ? (
+        <section className="admin-grid">
+          <section className="admin-section panel" aria-labelledby="task-audit-title">
+            <h3 id="task-audit-title">任务审计</h3>
+            <div className="table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>用户</th>
+                    <th>提示词</th>
+                    <th>状态</th>
+                    <th>尺寸</th>
+                    <th>耗时</th>
+                    <th>时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {generationTasks.map((task) => (
+                    <tr key={task.id}>
+                      <td>{task.username}</td>
+                      <td>{task.prompt}</td>
+                      <td>{task.status}</td>
+                      <td>{task.size}</td>
+                      <td>{task.latencyMs} ms</td>
+                      <td>{formatTime(task.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="admin-section panel" aria-labelledby="audit-log-title">
+            <h3 id="audit-log-title">操作记录</h3>
+            <div className="table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>动作</th>
+                    <th>目标用户</th>
+                    <th>详情</th>
+                    <th>时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td>{log.action}</td>
+                      <td>{log.targetUserId ?? "-"}</td>
+                      <td>{metadataText(log.metadata)}</td>
+                      <td>{formatTime(log.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      ) : null}
+    </section>
+  );
+}

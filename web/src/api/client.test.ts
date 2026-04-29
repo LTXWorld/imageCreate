@@ -54,4 +54,10 @@ describe("api", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.get("X-Trace-ID")).toBe("trace-1");
   });
+
+  test("accepts empty 204 responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(api<void>("/api/example", { method: "DELETE" })).resolves.toBeUndefined();
+  });
 });
