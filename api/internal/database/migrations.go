@@ -13,11 +13,12 @@ func RunMigrations(databaseURL, migrationsPath string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Close()
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		_, _ = m.Close()
 		return err
 	}
 
-	return nil
+	sourceErr, databaseErr := m.Close()
+	return errors.Join(sourceErr, databaseErr)
 }
