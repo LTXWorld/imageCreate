@@ -72,6 +72,31 @@ func TestGenerateImageSendsExpectedRequest(t *testing.T) {
 	}
 }
 
+func TestGenerateImageDoesNotDuplicateV1WhenBaseURLIncludesVersion(t *testing.T) {
+	var gotPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2UtYnl0ZXM="}]}`))
+	}))
+	defer server.Close()
+
+	client := Client{
+		BaseURL:    server.URL + "/v1",
+		APIKey:     "test-api-key",
+		Model:      "gpt-image-2",
+		HTTPClient: server.Client(),
+	}
+
+	if _, err := client.GenerateImage(context.Background(), "draw a moonlit garden", "1024x1024"); err != nil {
+		t.Fatalf("generate image: %v", err)
+	}
+	if gotPath != "/v1/images/generations" {
+		t.Fatalf("path = %q, want /v1/images/generations", gotPath)
+	}
+}
+
 func TestGenerateImageMapsContentRejection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"code":"content_policy_violation","message":"prompt violates policy"}}`, http.StatusBadRequest)

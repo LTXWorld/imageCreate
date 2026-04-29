@@ -76,7 +76,7 @@ func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result,
 		return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
 	}
 
-	endpoint := strings.TrimRight(c.BaseURL, "/") + "/v1/images/generations"
+	endpoint := imageGenerationEndpoint(c.BaseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return errorResult("upstream_error", "create upstream request"), fmt.Errorf("%w: create request", ErrUpstream)
@@ -120,6 +120,14 @@ func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result,
 	}
 
 	return Result{RequestID: requestID, ImageBytes: imageBytes}, nil
+}
+
+func imageGenerationEndpoint(baseURL string) string {
+	base := strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/images/generations"
+	}
+	return base + "/v1/images/generations"
 }
 
 func (c Client) handleErrorResponse(resp *http.Response, requestID string) (Result, error) {
