@@ -70,6 +70,17 @@ func TestRegisterConsumesInviteAndGrantsCredits(t *testing.T) {
 		t.Fatalf("credit_balance = %d, want 5", balance)
 	}
 
+	var passwordHash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, user.ID).Scan(&passwordHash); err != nil {
+		t.Fatalf("query password hash: %v", err)
+	}
+	if passwordHash == "alice-password" {
+		t.Fatal("password_hash stored plaintext password")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("alice-password")); err != nil {
+		t.Fatalf("password_hash does not verify with bcrypt: %v", err)
+	}
+
 	var ledgerRows int
 	if err := db.QueryRow(ctx, `
 		SELECT count(*)
@@ -167,5 +178,102 @@ func TestEnsureAdminCreatesConfiguredAdminOnce(t *testing.T) {
 	}
 	if adminRows != 1 {
 		t.Fatalf("admin rows = %d, want 1", adminRows)
+	}
+}
+
+func TestEnsureAdminRejectsNormalUserConflict(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	service := Service{DB: db}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("user-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	_, err = db.Exec(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ('root', $1, $2, $3, 0)
+	`, string(hash), models.RoleUser, models.UserStatusActive)
+	if err != nil {
+		t.Fatalf("insert normal user: %v", err)
+	}
+
+	err = service.EnsureAdmin(ctx, "root", "root-password")
+	if !errors.Is(err, ErrAdminConflict) {
+		t.Fatalf("ensure admin error = %v, want ErrAdminConflict", err)
+	}
+
+	var role string
+	if err := db.QueryRow(ctx, `SELECT role FROM users WHERE username = 'root'`).Scan(&role); err != nil {
+		t.Fatalf("query role: %v", err)
+	}
+	if role != models.RoleUser {
+		t.Fatalf("role = %q, want unchanged normal user role", role)
+	}
+}
+
+func TestEnsureAdminRejectsDisabledAdminConflict(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	service := Service{DB: db}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("admin-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	_, err = db.Exec(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ('root', $1, $2, $3, 0)
+	`, string(hash), models.RoleAdmin, models.UserStatusDisabled)
+	if err != nil {
+		t.Fatalf("insert disabled admin: %v", err)
+	}
+
+	err = service.EnsureAdmin(ctx, "root", "root-password")
+	if !errors.Is(err, ErrAdminConflict) {
+		t.Fatalf("ensure admin error = %v, want ErrAdminConflict", err)
+	}
+}
+
+func TestSessionCodecRoundTrip(t *testing.T) {
+	codec := NewSessionCodec("test-secret")
+
+	cookieValue, err := codec.Sign("user-123")
+	if err != nil {
+		t.Fatalf("sign session: %v", err)
+	}
+	if cookieValue == "user-123" {
+		t.Fatal("signed cookie value must not be raw user ID")
+	}
+
+	userID, ok := codec.Verify(cookieValue)
+	if !ok {
+		t.Fatal("verify signed cookie returned false")
+	}
+	if userID != "user-123" {
+		t.Fatalf("verified user ID = %q, want user-123", userID)
+	}
+}
+
+func TestSessionCodecRejectsTamperedCookie(t *testing.T) {
+	codec := NewSessionCodec("test-secret")
+
+	cookieValue, err := codec.Sign("user-123")
+	if err != nil {
+		t.Fatalf("sign session: %v", err)
+	}
+	tampered := cookieValue + "x"
+
+	if userID, ok := codec.Verify(tampered); ok {
+		t.Fatalf("tampered cookie verified as user %q", userID)
+	}
+}
+
+func TestSessionCodecRejectsWrongSecret(t *testing.T) {
+	cookieValue, err := NewSessionCodec("test-secret").Sign("user-123")
+	if err != nil {
+		t.Fatalf("sign session: %v", err)
+	}
+
+	if userID, ok := NewSessionCodec("other-secret").Verify(cookieValue); ok {
+		t.Fatalf("cookie verified with wrong secret as user %q", userID)
 	}
 }

@@ -8,18 +8,21 @@ import (
 )
 
 type HandlerOptions struct {
-	CookieSecure bool
+	CookieSecure  bool
+	SessionSecret string
 }
 
 type Handlers struct {
 	Service      Service
 	CookieSecure bool
+	SessionCodec SessionCodec
 }
 
 func NewHandlers(service Service, opts HandlerOptions) Handlers {
 	return Handlers{
 		Service:      service,
 		CookieSecure: opts.CookieSecure,
+		SessionCodec: NewSessionCodec(opts.SessionSecret),
 	}
 }
 
@@ -40,7 +43,10 @@ func (h Handlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, user.ID, h.cookieSecure(r))
+	if err := setSessionCookie(w, user.ID, h.cookieSecure(r), h.SessionCodec); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]User{"user": user})
 }
 
@@ -60,7 +66,10 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, user.ID, h.cookieSecure(r))
+	if err := setSessionCookie(w, user.ID, h.cookieSecure(r), h.SessionCodec); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]User{"user": user})
 }
 
@@ -82,15 +91,21 @@ func (h Handlers) cookieSecure(r *http.Request) bool {
 	return h.CookieSecure || r.TLS != nil
 }
 
-func setSessionCookie(w http.ResponseWriter, userID string, secure bool) {
+func setSessionCookie(w http.ResponseWriter, userID string, secure bool, codec SessionCodec) error {
+	cookieValue, err := codec.Sign(userID)
+	if err != nil {
+		return err
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
-		Value:    userID,
+		Value:    cookieValue,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
+	return nil
 }
 
 func clearSessionCookie(w http.ResponseWriter, secure bool) {
