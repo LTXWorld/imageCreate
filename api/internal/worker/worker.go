@@ -115,8 +115,8 @@ func (w Worker) claimOne(ctx context.Context) (claimedTask, bool, error) {
 		WHERE status = $1
 			AND deleted_at IS NULL
 		ORDER BY created_at, id
-		FOR UPDATE SKIP LOCKED
 		LIMIT 1
+		FOR UPDATE SKIP LOCKED
 	`, models.TaskQueued).Scan(&task.id, &task.prompt, &task.size)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return claimedTask{}, false, nil
