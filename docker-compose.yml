@@ -54,7 +54,7 @@ services:
       - api
       - web
     environment:
-      DOMAIN: ${DOMAIN:-img.example.com}
+      DOMAIN: ${DOMAIN:-:80}
     ports:
       - "80:80"
       - "443:443"

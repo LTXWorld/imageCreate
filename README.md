@@ -27,3 +27,18 @@ cd web && npm test -- --run && npm run build
 docker compose config
 docker compose build
 ```
+
+## Smoke test notes
+
+Without a local `.env`, Docker Compose uses HTTP-only local defaults so the stack can boot without trying to issue a certificate for the example production domain. For a full production smoke test, set `DOMAIN`, `APP_BASE_URL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `SESSION_SECRET`, and admin credentials in `.env`.
+
+The local smoke path is:
+
+1. Start the stack with `docker compose up -d --build`.
+2. Log in with the configured admin account.
+3. Create an invite with 5 credits.
+4. Register a user with that invite and confirm the user starts with 5 credits.
+5. Submit a generation prompt and wait for the task to leave `queued` or `running`.
+6. Check the admin generation audit list. It should include metadata such as prompt, status, size, latency, and error fields, but not image URLs, image paths, or previews.
+
+If the OpenAI-compatible upstream values are placeholders, the generation task is expected to fail with an upstream error and refund the credit. A successful image smoke test requires real upstream credentials.
