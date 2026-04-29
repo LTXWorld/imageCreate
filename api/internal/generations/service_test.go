@@ -155,6 +155,40 @@ func TestCreateTaskRejectsSecondActiveTask(t *testing.T) {
 	}
 }
 
+func TestListTasksForUserReturnsOnlyRecentTasks(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "recent-history", 3)
+
+	var recentID, oldID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model, created_at)
+		VALUES ($1, 'recent task', '1024x1024', $2, 'test-image-model', now() - interval '7 days')
+		RETURNING id::text
+	`, userID, models.TaskSucceeded).Scan(&recentID); err != nil {
+		t.Fatalf("insert recent task: %v", err)
+	}
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model, created_at)
+		VALUES ($1, 'old task', '1024x1024', $2, 'test-image-model', now() - interval '31 days')
+		RETURNING id::text
+	`, userID, models.TaskSucceeded).Scan(&oldID); err != nil {
+		t.Fatalf("insert old task: %v", err)
+	}
+
+	tasks, err := service.ListTasksForUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+
+	if len(tasks) != 1 {
+		t.Fatalf("task count = %d, want 1; tasks=%+v", len(tasks), tasks)
+	}
+	if tasks[0].ID != recentID {
+		t.Fatalf("task id = %q, want recent id %q; old id was %q", tasks[0].ID, recentID, oldID)
+	}
+}
+
 func TestFailTaskRefundsCredit(t *testing.T) {
 	ctx, db := setupGenerationTestDB(t)
 	service := testService(db)

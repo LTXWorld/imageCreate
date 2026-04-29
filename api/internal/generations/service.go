@@ -112,6 +112,7 @@ func (s Service) ListTasksForUser(ctx context.Context, userID string) ([]Task, e
 	rows, err := s.DB.Query(ctx, taskSelectSQL+`
 		WHERE user_id = $1::uuid
 			AND deleted_at IS NULL
+			AND created_at >= now() - interval '30 days'
 		ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
