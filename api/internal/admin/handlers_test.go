@@ -164,6 +164,40 @@ func TestAdminCanAdjustCredits(t *testing.T) {
 	}
 }
 
+func TestAdminAdjustCreditsRejectsOverflow(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "overflow-credit-admin", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "overflow-credit-user", models.RoleUser, 2147483647)
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/credits", `{"amount":1,"reason":"too much"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	var balance int
+	if err := db.QueryRow(ctx, `SELECT credit_balance FROM users WHERE id = $1`, userID).Scan(&balance); err != nil {
+		t.Fatalf("query balance: %v", err)
+	}
+	if balance != 2147483647 {
+		t.Fatalf("credit_balance = %d, want unchanged 2147483647", balance)
+	}
+
+	var ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1 AND type = $2
+	`, userID, models.LedgerAdminAdjustment).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count ledger rows: %v", err)
+	}
+	if ledgerRows != 0 {
+		t.Fatalf("admin_adjustment ledger rows = %d, want 0", ledgerRows)
+	}
+}
+
 func TestValidateCreditAdjustmentAmountRange(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

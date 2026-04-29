@@ -25,6 +25,13 @@ type Handlers struct {
 	DB *pgxpool.Pool
 }
 
+const (
+	minPostgresInteger = -2147483648
+	maxPostgresInteger = 2147483647
+)
+
+var errCreditBalanceOutOfRange = errors.New("credit balance out of range")
+
 func NewHandlers(db *pgxpool.Pool) Handlers {
 	return Handlers{DB: db}
 }
@@ -393,19 +400,23 @@ func adjustCredits(ctx context.Context, tx pgx.Tx, userID string, amount int, re
 	var user userResponse
 	err := tx.QueryRow(ctx, `
 		UPDATE users
-		SET credit_balance = credit_balance + $2,
+		SET credit_balance = (credit_balance::bigint + $2::bigint)::integer,
 			updated_at = now()
 		WHERE id = $1::uuid
-			AND credit_balance + $2 >= 0
+			AND credit_balance::bigint + $2::bigint BETWEEN 0 AND 2147483647
 		RETURNING id::text, username, role, status, credit_balance, created_at, updated_at
 	`, userID, amount).Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1::uuid)`, userID).Scan(&exists); err != nil {
+		var currentBalance int
+		if err := tx.QueryRow(ctx, `SELECT credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&currentBalance); errors.Is(err, pgx.ErrNoRows) {
+			return userResponse{}, credits.ErrUserNotFound
+		} else if err != nil {
 			return userResponse{}, err
 		}
-		if !exists {
-			return userResponse{}, credits.ErrUserNotFound
+
+		finalBalance := int64(currentBalance) + int64(amount)
+		if finalBalance > int64(maxPostgresInteger) {
+			return userResponse{}, errCreditBalanceOutOfRange
 		}
 		return userResponse{}, credits.ErrInsufficientCredits
 	}
@@ -438,7 +449,7 @@ func validateCreditAdjustmentAmount(value int) error {
 }
 
 func isPostgresInteger(value int) bool {
-	return value >= -2147483648 && value <= 2147483647
+	return value >= minPostgresInteger && value <= maxPostgresInteger
 }
 
 func insertAuditLog(ctx context.Context, tx pgx.Tx, actorUserID, targetUserID, action string, metadata map[string]any) error {
@@ -499,6 +510,8 @@ func writeCreditError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, credits.ErrUserNotFound):
 		writeError(w, http.StatusNotFound, "用户不存在")
+	case errors.Is(err, errCreditBalanceOutOfRange):
+		writeError(w, http.StatusBadRequest, "积分余额超出范围")
 	case errors.Is(err, credits.ErrInsufficientCredits):
 		writeError(w, http.StatusPaymentRequired, "积分不足")
 	default:
