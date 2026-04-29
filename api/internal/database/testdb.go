@@ -43,9 +43,17 @@ func requireDisposableDatabase(t *testing.T, databaseURL string) {
 	}
 
 	databaseName := strings.ToLower(cfg.ConnConfig.Database)
-	if !strings.Contains(databaseName, "test") && !strings.HasSuffix(databaseName, "_test") {
-		t.Fatalf("refusing to use TEST_DATABASE_URL database %q: database name must contain \"test\" or end in \"_test\"", cfg.ConnConfig.Database)
+	if !isDisposableTestDatabaseName(databaseName) {
+		t.Fatalf("refusing to use TEST_DATABASE_URL database %q: database name must be exactly \"test\", start with \"test_\", end in \"_test\", or contain \"_test_\"", cfg.ConnConfig.Database)
 	}
+}
+
+func isDisposableTestDatabaseName(name string) bool {
+	name = strings.ToLower(name)
+	return name == "test" ||
+		strings.HasPrefix(name, "test_") ||
+		strings.HasSuffix(name, "_test") ||
+		strings.Contains(name, "_test_")
 }
 
 func truncateAppTables(t *testing.T, pool *pgxpool.Pool) {
