@@ -24,7 +24,7 @@ func TestGenerateImageSendsExpectedRequest(t *testing.T) {
 		}
 		w.Header().Set("X-Request-Id", "req-test-123")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2UtYnl0ZXM="}]}`))
+		_, _ = w.Write([]byte(`{"id":"gen-test-456","data":[{"b64_json":"aW1hZ2UtYnl0ZXM="}]}`))
 	}))
 	defer server.Close()
 
@@ -88,6 +88,25 @@ func TestGenerateImageMapsContentRejection(t *testing.T) {
 	}
 	if !errors.Is(err, ErrContentRejected) {
 		t.Fatalf("error = %v, want ErrContentRejected", err)
+	}
+}
+
+func TestGenerateImageDoesNotMapMalformedContentRequestToRejection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"code":"invalid_request_error","message":"content must be a string"}}`, http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	client := Client{BaseURL: server.URL, APIKey: "test-api-key", Model: "gpt-image-2", HTTPClient: server.Client()}
+	result, err := client.GenerateImage(context.Background(), "draw a comet", "1024x1024")
+	if err == nil {
+		t.Fatal("generate image error = nil, want upstream error")
+	}
+	if result.ErrorCode != "upstream_error" {
+		t.Fatalf("error code = %q, want upstream_error", result.ErrorCode)
+	}
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("error = %v, want ErrUpstream", err)
 	}
 }
 
