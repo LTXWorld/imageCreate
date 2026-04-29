@@ -1,2 +1,5 @@
 .superpowers/
-
+.env
+api/storage/
+web/dist/
+web/node_modules/
