@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -166,6 +167,43 @@ func TestEnsureAdminCreatesConfiguredAdminOnce(t *testing.T) {
 	}
 	if err := service.EnsureAdmin(ctx, "root", "root-password"); err != nil {
 		t.Fatalf("ensure admin second call: %v", err)
+	}
+
+	var adminRows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM users
+		WHERE username = 'root' AND role = $1 AND status = $2
+	`, models.RoleAdmin, models.UserStatusActive).Scan(&adminRows); err != nil {
+		t.Fatalf("count admin rows: %v", err)
+	}
+	if adminRows != 1 {
+		t.Fatalf("admin rows = %d, want 1", adminRows)
+	}
+}
+
+func TestEnsureAdminConcurrentBootstrapIsIdempotent(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	service := Service{DB: db}
+
+	const callers = 8
+	errs := make(chan error, callers)
+
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- service.EnsureAdmin(ctx, "root", "root-password")
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ensure admin concurrent call returned error: %v", err)
+		}
 	}
 
 	var adminRows int

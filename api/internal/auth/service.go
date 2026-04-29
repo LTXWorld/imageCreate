@@ -153,23 +153,6 @@ func (s Service) EnsureAdmin(ctx context.Context, username, password string) err
 		return ErrInvalidInput
 	}
 
-	var existingRole string
-	var existingStatus string
-	err := s.DB.QueryRow(ctx, `
-		SELECT role, status
-		FROM users
-		WHERE username = $1
-	`, username).Scan(&existingRole, &existingStatus)
-	if err == nil {
-		if existingRole == models.RoleAdmin && existingStatus == models.UserStatusActive {
-			return nil
-		}
-		return ErrAdminConflict
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
@@ -178,11 +161,25 @@ func (s Service) EnsureAdmin(ctx context.Context, username, password string) err
 	_, err = s.DB.Exec(ctx, `
 		INSERT INTO users (username, password_hash, role, status, credit_balance)
 		VALUES ($1, $2, $3, $4, 0)
+		ON CONFLICT (username) DO NOTHING
 	`, username, string(passwordHash), models.RoleAdmin, models.UserStatusActive)
-	if isUniqueViolation(err) {
-		return ErrAdminConflict
+	if err != nil {
+		return err
 	}
-	return err
+
+	var role string
+	var status string
+	if err := s.DB.QueryRow(ctx, `
+		SELECT role, status
+		FROM users
+		WHERE username = $1
+	`, username).Scan(&role, &status); err != nil {
+		return err
+	}
+	if role == models.RoleAdmin && status == models.UserStatusActive {
+		return nil
+	}
+	return ErrAdminConflict
 }
 
 func (s Service) userByID(ctx context.Context, id string) (User, error) {
