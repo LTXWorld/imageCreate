@@ -3,12 +3,16 @@ import { useCallback, useEffect, useState } from "react";
 import { api, normalizeAuthResponse, type User } from "./api/client";
 import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
+import { HistoryPage } from "./pages/HistoryPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { WorkspacePage } from "./pages/WorkspacePage";
 import "./styles/app.css";
 
+type View = "login" | "register" | "workspace" | "history";
+
 export function App() {
-  const [view, setView] = useState<"login" | "register" | "workspace">("login");
+  const [view, setView] = useState<View>("login");
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
@@ -65,28 +69,33 @@ export function App() {
 
   const content = view === "register" ? (
     <RegisterPage onRegister={handleAuthenticated} onLoginClick={() => setView("login")} />
+  ) : view === "history" ? (
+    <RequireAuth
+      user={user}
+      onAuthenticated={handleAuthenticated}
+      onUnauthenticated={handleUnauthenticated}
+    >
+      <HistoryPage onWorkspaceClick={() => setView("workspace")} />
+    </RequireAuth>
   ) : view === "workspace" ? (
     <RequireAuth
       user={user}
       onAuthenticated={handleAuthenticated}
       onUnauthenticated={handleUnauthenticated}
     >
-      <section className="workspace-panel">
-        <div className="section-heading">
-          <p className="eyebrow">创作台</p>
-          <h2>图像生成</h2>
-        </div>
-        <div className="empty-workspace">
-          <p>生成表单将在后续任务接入。</p>
-        </div>
-      </section>
+      {user ? <WorkspacePage user={user} onHistoryClick={() => setView("history")} /> : null}
     </RequireAuth>
   ) : (
     <LoginPage onLogin={handleAuthenticated} onRegisterClick={() => setView("register")} />
   );
 
   return (
-    <Layout user={user} activeView={view} onNavigate={setView} onLogout={handleLogout}>
+    <Layout
+      user={user}
+      activeView={view === "history" ? "workspace" : view}
+      onNavigate={(nextView) => setView(nextView)}
+      onLogout={handleLogout}
+    >
       {content}
     </Layout>
   );
