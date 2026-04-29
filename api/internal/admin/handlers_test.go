@@ -81,6 +81,29 @@ func TestAdminCanCreateInvite(t *testing.T) {
 	}
 }
 
+func TestValidateInviteInitialCreditsRange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+		valid bool
+	}{
+		{name: "zero", value: 0, valid: true},
+		{name: "max int32", value: 2147483647, valid: true},
+		{name: "negative", value: -1, valid: false},
+		{name: "over int32", value: 2147483648, valid: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateInviteInitialCredits(tc.value)
+			if tc.valid && err != nil {
+				t.Fatalf("validateInviteInitialCredits(%d) error = %v, want nil", tc.value, err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatalf("validateInviteInitialCredits(%d) error = nil, want error", tc.value)
+			}
+		})
+	}
+}
+
 func TestNonAdminCannotCreateInvite(t *testing.T) {
 	ctx, db, handler := setupAdminHandlerTest(t)
 	userID := insertAdminTestUser(t, ctx, db, "invite-user", models.RoleUser, 0)
@@ -138,6 +161,32 @@ func TestAdminCanAdjustCredits(t *testing.T) {
 	}
 	if auditRows != 1 {
 		t.Fatalf("adjust_credits audit rows = %d, want 1", auditRows)
+	}
+}
+
+func TestValidateCreditAdjustmentAmountRange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+		valid bool
+	}{
+		{name: "positive", value: 3, valid: true},
+		{name: "negative", value: -3, valid: true},
+		{name: "max int32", value: 2147483647, valid: true},
+		{name: "min int32", value: -2147483648, valid: true},
+		{name: "zero", value: 0, valid: false},
+		{name: "over int32", value: 2147483648, valid: false},
+		{name: "under int32", value: -2147483649, valid: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateCreditAdjustmentAmount(tc.value)
+			if tc.valid && err != nil {
+				t.Fatalf("validateCreditAdjustmentAmount(%d) error = %v, want nil", tc.value, err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatalf("validateCreditAdjustmentAmount(%d) error = nil, want error", tc.value)
+			}
+		})
 	}
 }
 

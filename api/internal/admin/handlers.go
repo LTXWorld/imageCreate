@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -131,7 +132,7 @@ func (h Handlers) AdjustCredits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Reason = strings.TrimSpace(req.Reason)
-	if req.Amount == 0 || req.Reason == "" {
+	if validateCreditAdjustmentAmount(req.Amount) != nil || req.Reason == "" {
 		writeError(w, http.StatusBadRequest, "积分调整信息无效")
 		return
 	}
@@ -206,7 +207,7 @@ func (h Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Code = strings.TrimSpace(req.Code)
-	if req.InitialCredits < 0 {
+	if validateInviteInitialCredits(req.InitialCredits) != nil {
 		writeError(w, http.StatusBadRequest, "初始积分无效")
 		return
 	}
@@ -376,20 +377,6 @@ type generationTaskResponse struct {
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 }
 
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func (h Handlers) userByID(ctx context.Context, userID string) (userResponse, error) {
-	var user userResponse
-	err := h.DB.QueryRow(ctx, `
-		SELECT id::text, username, role, status, credit_balance, created_at, updated_at
-		FROM users
-		WHERE id = $1::uuid
-	`, userID).Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt)
-	return user, err
-}
-
 func updateUserStatus(ctx context.Context, tx pgx.Tx, userID, status string) (userResponse, error) {
 	var user userResponse
 	err := tx.QueryRow(ctx, `
@@ -434,6 +421,24 @@ func adjustCredits(ctx context.Context, tx pgx.Tx, userID string, amount int, re
 	}
 
 	return user, nil
+}
+
+func validateInviteInitialCredits(value int) error {
+	if value < 0 || !isPostgresInteger(value) {
+		return fmt.Errorf("initial_credits out of range")
+	}
+	return nil
+}
+
+func validateCreditAdjustmentAmount(value int) error {
+	if value == 0 || !isPostgresInteger(value) {
+		return fmt.Errorf("amount out of range")
+	}
+	return nil
+}
+
+func isPostgresInteger(value int) bool {
+	return value >= -2147483648 && value <= 2147483647
 }
 
 func insertAuditLog(ctx context.Context, tx pgx.Tx, actorUserID, targetUserID, action string, metadata map[string]any) error {
