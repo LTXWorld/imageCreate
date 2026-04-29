@@ -1,0 +1,7 @@
+.git
+.env
+.superpowers
+api/storage
+web/dist
+web/node_modules
+**/.DS_Store

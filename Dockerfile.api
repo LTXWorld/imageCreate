@@ -1,0 +1,29 @@
+FROM golang:1.22-alpine AS build
+
+WORKDIR /src/api
+
+COPY api/go.mod api/go.sum ./
+RUN go mod download
+
+COPY api/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/imagecreate-api ./cmd/server
+
+FROM alpine:3.20
+
+RUN addgroup -S imagecreate && adduser -S imagecreate -G imagecreate
+
+WORKDIR /app
+
+COPY --from=build /out/imagecreate-api /app/imagecreate-api
+COPY api/migrations /app/migrations
+
+RUN mkdir -p /data/images && chown -R imagecreate:imagecreate /data /app
+
+USER imagecreate
+
+ENV ADDR=:8080
+ENV IMAGE_STORAGE_DIR=/data/images
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/imagecreate-api"]
