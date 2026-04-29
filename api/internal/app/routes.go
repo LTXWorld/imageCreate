@@ -34,5 +34,16 @@ func (a *App) Routes() http.Handler {
 		r.Get("/api/generations/{id}/image", a.generationHandlers.Image)
 	})
 
+	r.Route("/api/admin", func(r chi.Router) {
+		r.Use(auth.RequireAdmin)
+		r.Get("/users", a.adminHandlers.ListUsers)
+		r.Patch("/users/{id}/status", a.adminHandlers.UpdateUserStatus)
+		r.Post("/users/{id}/credits", a.adminHandlers.AdjustCredits)
+		r.Get("/invites", a.adminHandlers.ListInvites)
+		r.Post("/invites", a.adminHandlers.CreateInvite)
+		r.Get("/audit-logs", a.adminHandlers.ListAuditLogs)
+		r.Get("/generation-tasks", a.adminHandlers.ListGenerationTasks)
+	})
+
 	return r
 }

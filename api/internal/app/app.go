@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"imagecreate/api/internal/admin"
 	"imagecreate/api/internal/auth"
 	"imagecreate/api/internal/config"
 	"imagecreate/api/internal/generations"
@@ -14,6 +15,7 @@ import (
 
 type App struct {
 	cfg                config.Config
+	adminHandlers      admin.Handlers
 	authHandlers       auth.Handlers
 	authMiddleware     func(http.Handler) http.Handler
 	generationHandlers generations.Handlers
@@ -42,6 +44,7 @@ func New(cfg config.Config, db *pgxpool.Pool) (*App, error) {
 
 	return &App{
 		cfg:                cfg,
+		adminHandlers:      admin.NewHandlers(db),
 		authHandlers:       authHandlers,
 		authMiddleware:     auth.WithUser(authService, auth.NewSessionCodec(cfg.SessionSecret)),
 		generationHandlers: generations.NewHandlers(generationService, storage),
