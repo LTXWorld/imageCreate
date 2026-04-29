@@ -87,7 +87,12 @@ func (h Handlers) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.Service.GetTaskForUser(r.Context(), user.ID, chi.URLParam(r, "id"))
+	taskID, ok := validTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	task, err := h.Service.GetTaskForUser(r.Context(), user.ID, taskID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -102,7 +107,12 @@ func (h Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Service.DeleteTaskForUser(r.Context(), user.ID, chi.URLParam(r, "id")); err != nil {
+	taskID, ok := validTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.Service.DeleteTaskForUser(r.Context(), user.ID, taskID); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -116,7 +126,12 @@ func (h Handlers) Image(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.Service.GetTaskForUser(r.Context(), user.ID, chi.URLParam(r, "id"))
+	taskID, ok := validTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	task, err := h.Service.GetTaskForUser(r.Context(), user.ID, taskID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -172,12 +187,46 @@ func userFacingFailureMessage(code string) string {
 	case "content_rejected":
 		return contentRejectedMessage
 	case "rate_limited":
-		return "生成服务繁忙，请稍后重试。"
+		return "当前生成服务繁忙，请稍后再试。"
 	case "timeout":
-		return "生成超时，请稍后重试。"
+		return "生成超时，本次额度已退回，请稍后重试。"
 	default:
-		return "图片生成失败，请稍后重试。"
+		return "生成失败，本次额度已退回。"
 	}
+}
+
+func validTaskID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	taskID := chi.URLParam(r, "id")
+	if !isCanonicalUUID(taskID) {
+		writeError(w, http.StatusBadRequest, "invalid_task_id", "任务编号格式错误")
+		return "", false
+	}
+	return taskID, true
+}
+
+func isCanonicalUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !isHex(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isHex(r rune) bool {
+	return (r >= '0' && r <= '9') ||
+		(r >= 'a' && r <= 'f') ||
+		(r >= 'A' && r <= 'F')
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"imagecreate/api/internal/app"
 	"imagecreate/api/internal/auth"
@@ -43,7 +44,13 @@ func main() {
 		log.Fatalf("create app: %v", err)
 	}
 
-	go application.Worker().Run(ctx)
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		application.Worker().Run(workerCtx)
+	}()
 
 	addr := getenv("ADDR", ":8080")
 	server := &http.Server{
@@ -51,7 +58,9 @@ func main() {
 		Handler: application.Routes(),
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.OpenAIRequestTimeout)
 		defer cancel()
@@ -62,8 +71,15 @@ func main() {
 
 	log.Printf("listening on %s", addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		cancelWorker()
 		log.Fatal(err)
 	}
+
+	if ctx.Err() != nil {
+		<-shutdownDone
+	}
+	cancelWorker()
+	waitForWorker(workerDone, cfg.OpenAIRequestTimeout)
 }
 
 func getenv(key, fallback string) string {
@@ -88,4 +104,18 @@ func migrationsPath() string {
 		}
 	}
 	return filepath.Join("migrations")
+}
+
+func waitForWorker(done <-chan struct{}, timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+		log.Printf("worker did not stop within %s", timeout)
+	}
 }
