@@ -97,6 +97,7 @@ type fakeUpstream struct {
 	result     upstream.Result
 	err        error
 	called     int
+	cancel     context.CancelFunc
 }
 
 func (f *fakeUpstream) GenerateImage(ctx context.Context, prompt, size string) (upstream.Result, error) {
@@ -109,6 +110,9 @@ func (f *fakeUpstream) GenerateImage(ctx context.Context, prompt, size string) (
 	}
 	if got := workerTaskStatus(f.t, ctx, f.db, f.taskID); got != models.TaskRunning {
 		f.t.Fatalf("task status during upstream call = %q, want %q", got, models.TaskRunning)
+	}
+	if f.cancel != nil {
+		f.cancel()
 	}
 	return f.result, f.err
 }
@@ -312,5 +316,163 @@ func TestWorkerSkipsWhenNoQueuedTask(t *testing.T) {
 	}
 	if storage.called != 0 {
 		t.Fatalf("storage calls = %d, want 0", storage.called)
+	}
+}
+
+func TestWorkerRecoversStaleRunningTask(t *testing.T) {
+	ctx, db := setupWorkerTestDB(t)
+	service := workerGenerationService(db)
+	userID := insertWorkerTestUser(t, ctx, db, "worker-stale", 1)
+
+	task, err := service.CreateTask(ctx, generations.CreateTaskInput{
+		UserID: userID,
+		Prompt: "draw a stalled task",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE generation_tasks
+		SET status = $2,
+			started_at = now() - interval '2 hours'
+		WHERE id = $1
+	`, task.ID, models.TaskRunning); err != nil {
+		t.Fatalf("mark task stale running: %v", err)
+	}
+
+	upstreamClient := &fakeUpstream{t: t}
+	storage := &fakeStorage{t: t}
+	worker := Worker{
+		DB:             db,
+		Generations:    service,
+		Upstream:       upstreamClient,
+		Storage:        storage,
+		RunningTimeout: time.Minute,
+	}
+
+	processed, err := worker.ProcessOne(ctx)
+	if err != nil {
+		t.Fatalf("process one: %v", err)
+	}
+	if !processed {
+		t.Fatal("processed = false, want true")
+	}
+	if upstreamClient.called != 0 {
+		t.Fatalf("upstream calls = %d, want 0", upstreamClient.called)
+	}
+	if storage.called != 0 {
+		t.Fatalf("storage calls = %d, want 0", storage.called)
+	}
+
+	var status, errorCode, errorMessage string
+	if err := db.QueryRow(ctx, `
+		SELECT status, error_code, error_message
+		FROM generation_tasks
+		WHERE id = $1
+	`, task.ID).Scan(&status, &errorCode, &errorMessage); err != nil {
+		t.Fatalf("query recovered task: %v", err)
+	}
+	if status != models.TaskFailed {
+		t.Fatalf("status = %q, want %q", status, models.TaskFailed)
+	}
+	if errorCode != staleRunningErrorCode {
+		t.Fatalf("error_code = %q, want %q", errorCode, staleRunningErrorCode)
+	}
+	if errorMessage != staleRunningErrorMessage {
+		t.Fatalf("error_message = %q, want %q", errorMessage, staleRunningErrorMessage)
+	}
+	if got := workerCreditBalance(t, ctx, db, userID); got != 1 {
+		t.Fatalf("credit_balance after recovery = %d, want 1", got)
+	}
+	if rows := workerRefundLedgerRows(t, ctx, db, userID, task.ID); rows != 1 {
+		t.Fatalf("refund ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestWorkerFinalizesFailureAfterRequestCancellation(t *testing.T) {
+	ctx, db := setupWorkerTestDB(t)
+	service := workerGenerationService(db)
+	userID := insertWorkerTestUser(t, ctx, db, "worker-canceled", 1)
+
+	task, err := service.CreateTask(ctx, generations.CreateTaskInput{
+		UserID: userID,
+		Prompt: "draw a canceled task",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	requestCtx, cancelRequest := context.WithCancel(ctx)
+	storage := &fakeStorage{t: t, path: "should-not-save.png"}
+	upstreamClient := &fakeUpstream{
+		t:          t,
+		db:         db,
+		taskID:     task.ID,
+		wantPrompt: task.Prompt,
+		wantSize:   task.Size,
+		result: upstream.Result{
+			ErrorCode:    "timeout",
+			ErrorMessage: "upstream request timed out",
+		},
+		err:    context.Canceled,
+		cancel: cancelRequest,
+	}
+	worker := Worker{
+		DB:          db,
+		Generations: service,
+		Upstream:    upstreamClient,
+		Storage:     storage,
+	}
+
+	processed, err := worker.ProcessOne(requestCtx)
+	if err != nil {
+		t.Fatalf("process one: %v", err)
+	}
+	if !processed {
+		t.Fatal("processed = false, want true")
+	}
+	if err := requestCtx.Err(); err == nil {
+		t.Fatal("request context is not canceled")
+	}
+
+	var status, errorCode string
+	if err := db.QueryRow(ctx, `
+		SELECT status, error_code
+		FROM generation_tasks
+		WHERE id = $1
+	`, task.ID).Scan(&status, &errorCode); err != nil {
+		t.Fatalf("query finalized task: %v", err)
+	}
+	if status != models.TaskFailed {
+		t.Fatalf("status = %q, want %q", status, models.TaskFailed)
+	}
+	if errorCode != "timeout" {
+		t.Fatalf("error_code = %q, want timeout", errorCode)
+	}
+	if got := workerCreditBalance(t, ctx, db, userID); got != 1 {
+		t.Fatalf("credit_balance after cancellation = %d, want 1", got)
+	}
+	if rows := workerRefundLedgerRows(t, ctx, db, userID, task.ID); rows != 1 {
+		t.Fatalf("refund ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestFinalizationContextIgnoresCanceledRequestContext(t *testing.T) {
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	cancelRequest()
+
+	ctx, cancel := finalizationContext()
+	defer cancel()
+
+	if err := requestCtx.Err(); err == nil {
+		t.Fatal("request context is not canceled")
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("finalization context error = %v, want nil", err)
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("finalization context has no deadline")
 	}
 }

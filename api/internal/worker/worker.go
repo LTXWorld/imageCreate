@@ -15,11 +15,15 @@ import (
 )
 
 const (
-	defaultPollInterval  = time.Second
-	fallbackErrorCode    = "upstream_error"
-	fallbackErrorMessage = "upstream image generation failed"
-	storageErrorCode     = "internal_error"
-	storageErrorMessage  = "failed to save generated image"
+	defaultPollInterval      = time.Second
+	defaultRunningTimeout    = 15 * time.Minute
+	finalizationTimeout      = 10 * time.Second
+	fallbackErrorCode        = "upstream_error"
+	fallbackErrorMessage     = "upstream image generation failed"
+	storageErrorCode         = "internal_error"
+	storageErrorMessage      = "failed to save generated image"
+	staleRunningErrorCode    = "timeout"
+	staleRunningErrorMessage = "generation worker timed out"
 )
 
 type Upstream interface {
@@ -31,11 +35,12 @@ type Storage interface {
 }
 
 type Worker struct {
-	DB           *pgxpool.Pool
-	Generations  generations.Service
-	Upstream     Upstream
-	Storage      Storage
-	PollInterval time.Duration
+	DB             *pgxpool.Pool
+	Generations    generations.Service
+	Upstream       Upstream
+	Storage        Storage
+	PollInterval   time.Duration
+	RunningTimeout time.Duration
 }
 
 type claimedTask struct {
@@ -70,6 +75,11 @@ func (w Worker) Run(ctx context.Context) {
 }
 
 func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
+	recovered, err := w.recoverStaleRunning(ctx)
+	if err != nil || recovered {
+		return recovered, err
+	}
+
 	task, ok, err := w.claimOne(ctx)
 	if err != nil || !ok {
 		return ok, err
@@ -80,7 +90,9 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	latencyMS := elapsedMilliseconds(started)
 	if err != nil {
 		code, message := upstreamFailure(result)
-		if markErr := w.Generations.MarkFailedAndRefund(ctx, task.id, code, message, latencyMS); markErr != nil {
+		finalCtx, cancel := finalizationContext()
+		defer cancel()
+		if markErr := w.Generations.MarkFailedAndRefund(finalCtx, task.id, code, message, latencyMS); markErr != nil {
 			return true, markErr
 		}
 		return true, nil
@@ -89,16 +101,78 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	imagePath, err := w.Storage.Save(ctx, task.id, result.ImageBytes, time.Now())
 	latencyMS = elapsedMilliseconds(started)
 	if err != nil {
-		if markErr := w.Generations.MarkFailedAndRefund(ctx, task.id, storageErrorCode, storageErrorMessage, latencyMS); markErr != nil {
+		finalCtx, cancel := finalizationContext()
+		defer cancel()
+		if markErr := w.Generations.MarkFailedAndRefund(finalCtx, task.id, storageErrorCode, storageErrorMessage, latencyMS); markErr != nil {
 			return true, fmt.Errorf("save image: %v; mark failed: %w", err, markErr)
 		}
 		return true, nil
 	}
 
-	if err := w.Generations.MarkSucceeded(ctx, task.id, result.RequestID, imagePath, latencyMS); err != nil {
+	finalCtx, cancel := finalizationContext()
+	err = w.Generations.MarkSucceeded(finalCtx, task.id, result.RequestID, imagePath, latencyMS)
+	cancel()
+	if err != nil {
+		failCtx, failCancel := finalizationContext()
+		failErr := w.Generations.MarkFailedAndRefund(failCtx, task.id, storageErrorCode, storageErrorMessage, latencyMS)
+		failCancel()
+		if failErr != nil {
+			return true, fmt.Errorf("mark succeeded: %v; mark failed: %w", err, failErr)
+		}
+		return true, nil
+	}
+	return true, nil
+}
+
+func (w Worker) recoverStaleRunning(ctx context.Context) (bool, error) {
+	timeout := w.RunningTimeout
+	if timeout <= 0 {
+		timeout = defaultRunningTimeout
+	}
+
+	taskID, ok, err := w.findStaleRunning(ctx, time.Now().Add(-timeout))
+	if err != nil || !ok {
+		return ok, err
+	}
+
+	finalCtx, cancel := finalizationContext()
+	defer cancel()
+	if err := w.Generations.MarkFailedAndRefund(finalCtx, taskID, staleRunningErrorCode, staleRunningErrorMessage, 0); err != nil {
 		return true, err
 	}
 	return true, nil
+}
+
+func (w Worker) findStaleRunning(ctx context.Context, cutoff time.Time) (string, bool, error) {
+	tx, err := w.DB.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("begin stale task recovery: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var taskID string
+	err = tx.QueryRow(ctx, `
+		SELECT id::text
+		FROM generation_tasks
+		WHERE status = $1
+			AND started_at IS NOT NULL
+			AND started_at < $2
+			AND deleted_at IS NULL
+		ORDER BY started_at, id
+		LIMIT 1
+		FOR UPDATE SKIP LOCKED
+	`, models.TaskRunning, cutoff).Scan(&taskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("select stale running task: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("commit stale task recovery: %w", err)
+	}
+	return taskID, true, nil
 }
 
 func (w Worker) claimOne(ctx context.Context) (claimedTask, bool, error) {
@@ -154,4 +228,8 @@ func upstreamFailure(result upstream.Result) (string, string) {
 
 func elapsedMilliseconds(started time.Time) int {
 	return int(time.Since(started).Milliseconds())
+}
+
+func finalizationContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), finalizationTimeout)
 }
