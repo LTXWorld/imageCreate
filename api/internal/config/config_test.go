@@ -11,6 +11,10 @@ func TestLoadDefaultsImagePresets(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://proxy.example.com")
 	t.Setenv("OPENAI_API_KEY", "sk-test")
 	t.Setenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
+	t.Setenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "")
+	t.Setenv("IMAGE_STORAGE_DIR", "")
+	t.Setenv("IMAGE_RETENTION_DAYS", "")
+	t.Setenv("IMAGE_SIZE_PRESETS", "")
 
 	cfg, err := Load()
 	if err != nil {
