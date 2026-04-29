@@ -14,6 +14,7 @@ import (
 var (
 	ErrInsufficientCredits = errors.New("insufficient credits")
 	ErrUserNotFound        = errors.New("user not found")
+	ErrTaskNotFound        = errors.New("task not found")
 )
 
 type Service struct {
@@ -64,6 +65,35 @@ func (s Service) Adjust(ctx context.Context, userID string, amount int, reason s
 }
 
 func (s Service) RefundGeneration(ctx context.Context, tx pgx.Tx, userID string, taskID string, reason string) error {
+	var lockedTaskID string
+	err := tx.QueryRow(ctx, `
+		SELECT id::text
+		FROM generation_tasks
+		WHERE id = $1::uuid
+		FOR UPDATE
+	`, taskID).Scan(&lockedTaskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrTaskNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock generation task for refund: %w", err)
+	}
+
+	var alreadyRefunded bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM credit_ledger
+			WHERE task_id = $1::uuid
+				AND type = $2
+		)
+	`, taskID, models.LedgerGenerationRefund).Scan(&alreadyRefunded); err != nil {
+		return fmt.Errorf("check existing generation refund: %w", err)
+	}
+	if alreadyRefunded {
+		return nil
+	}
+
 	var balanceAfter int
 	if err := tx.QueryRow(ctx, `
 		UPDATE users

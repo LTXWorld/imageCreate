@@ -219,3 +219,38 @@ func TestSucceedTaskDoesNotRefundCredit(t *testing.T) {
 		t.Fatalf("generation_refund ledger rows = %d, want 0", rows)
 	}
 }
+
+func TestDeleteTaskRejectsActiveTask(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+
+	for _, status := range []string{models.TaskQueued, models.TaskRunning} {
+		userID := insertGenerationTestUser(t, ctx, db, "delete-"+status, 3)
+
+		var taskID string
+		if err := db.QueryRow(ctx, `
+			INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
+			VALUES ($1, 'active task', '1024x1024', $2, 'test-image-model')
+			RETURNING id::text
+		`, userID, status).Scan(&taskID); err != nil {
+			t.Fatalf("insert %s task: %v", status, err)
+		}
+
+		err := service.DeleteTaskForUser(ctx, userID, taskID)
+		if !errors.Is(err, ErrTaskActive) {
+			t.Fatalf("delete %s task error = %v, want ErrTaskActive", status, err)
+		}
+
+		var deleted bool
+		if err := db.QueryRow(ctx, `
+			SELECT deleted_at IS NOT NULL
+			FROM generation_tasks
+			WHERE id = $1
+		`, taskID).Scan(&deleted); err != nil {
+			t.Fatalf("query %s task deleted_at: %v", status, err)
+		}
+		if deleted {
+			t.Fatalf("%s task was soft-deleted", status)
+		}
+	}
+}

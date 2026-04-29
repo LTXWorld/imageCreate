@@ -166,3 +166,51 @@ func TestRefundGenerationIncrementsBalanceAndWritesTaskLedger(t *testing.T) {
 		t.Fatalf("refund ledger amount=%d balance_after=%d reason=%q, want amount=1 balance_after=2 reason=%q", amount, balanceAfter, reason, "provider failed")
 	}
 }
+
+func TestRefundGenerationDoesNotDoubleCreditTask(t *testing.T) {
+	ctx, db := setupCreditTestDB(t)
+	service := Service{DB: db}
+	userID := insertCreditTestUser(t, ctx, db, "dana", models.RoleUser, 1)
+
+	var taskID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
+		VALUES ($1, 'prompt', '1024x1024', $2, 'test-model')
+		RETURNING id::text
+	`, userID, models.TaskFailed).Scan(&taskID); err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin tx %d: %v", i, err)
+		}
+
+		if err := service.RefundGeneration(ctx, tx, userID, taskID, "provider failed"); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("refund generation %d: %v", i, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit tx %d: %v", i, err)
+		}
+	}
+
+	if got := creditTestBalance(t, ctx, db, userID); got != 2 {
+		t.Fatalf("credit_balance = %d, want 2", got)
+	}
+
+	var rows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1
+			AND task_id = $2
+			AND type = $3
+	`, userID, taskID, models.LedgerGenerationRefund).Scan(&rows); err != nil {
+		t.Fatalf("count refund rows: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("generation_refund ledger rows = %d, want 1", rows)
+	}
+}

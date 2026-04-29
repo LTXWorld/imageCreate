@@ -23,6 +23,7 @@ var (
 	ErrNotFound            = errors.New("not found")
 	ErrDisabledUser        = errors.New("disabled user")
 	ErrTaskNotActive       = errors.New("task is not active")
+	ErrTaskActive          = errors.New("task is active")
 )
 
 type Service struct {
@@ -129,18 +130,45 @@ func (s Service) ListTasksForUser(ctx context.Context, userID string) ([]Task, e
 }
 
 func (s Service) DeleteTaskForUser(ctx context.Context, userID, taskID string) error {
-	tag, err := s.DB.Exec(ctx, `
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete task: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	var deleted bool
+	err = tx.QueryRow(ctx, `
+		SELECT status, deleted_at IS NOT NULL
+		FROM generation_tasks
+		WHERE user_id = $1::uuid
+			AND id = $2::uuid
+		FOR UPDATE
+	`, userID, taskID).Scan(&status, &deleted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock task for delete: %w", err)
+	}
+	if deleted {
+		return ErrNotFound
+	}
+	if isActiveTaskStatus(status) {
+		return ErrTaskActive
+	}
+
+	if _, err := tx.Exec(ctx, `
 		UPDATE generation_tasks
 		SET deleted_at = now()
 		WHERE user_id = $1::uuid
 			AND id = $2::uuid
-			AND deleted_at IS NULL
-	`, userID, taskID)
-	if err != nil {
+	`, userID, taskID); err != nil {
 		return fmt.Errorf("delete task: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete task: %w", err)
 	}
 	return nil
 }
@@ -187,7 +215,7 @@ func (s Service) MarkFailedAndRefund(ctx context.Context, taskID, code, message 
 	if err != nil {
 		return fmt.Errorf("lock task: %w", err)
 	}
-	if status != models.TaskQueued && status != models.TaskRunning {
+	if !isActiveTaskStatus(status) {
 		return ErrTaskNotActive
 	}
 
@@ -329,18 +357,26 @@ func isActiveTaskUniqueViolation(err error) bool {
 		pgErr.ConstraintName == "generation_tasks_one_active_per_user"
 }
 
+func isActiveTaskStatus(status string) bool {
+	return status == models.TaskQueued || status == models.TaskRunning
+}
+
 func (s Service) inactiveTaskError(ctx context.Context, taskID string) error {
 	var status string
+	var deleted bool
 	err := s.DB.QueryRow(ctx, `
-		SELECT status
+		SELECT status, deleted_at IS NOT NULL
 		FROM generation_tasks
 		WHERE id = $1::uuid
-	`, taskID).Scan(&status)
+	`, taskID).Scan(&status, &deleted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("inspect task status: %w", err)
+	}
+	if deleted {
+		return ErrNotFound
 	}
 	return ErrTaskNotActive
 }
