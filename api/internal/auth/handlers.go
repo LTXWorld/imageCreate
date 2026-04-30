@@ -129,6 +129,8 @@ func writeAuthError(w http.ResponseWriter, err error) {
 		writeJSONError(w, http.StatusBadRequest, "邀请码无效或已使用")
 	case errors.Is(err, ErrDuplicateUsername):
 		writeJSONError(w, http.StatusConflict, "用户名已存在")
+	case errors.Is(err, ErrPasswordTooShort):
+		writeJSONError(w, http.StatusBadRequest, "新密码至少 6 位")
 	case errors.Is(err, ErrInvalidCredentials):
 		writeJSONError(w, http.StatusUnauthorized, "用户名或密码错误")
 	case errors.Is(err, ErrDisabledUser):

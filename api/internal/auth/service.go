@@ -140,11 +140,20 @@ func (s Service) ChangePassword(ctx context.Context, userID, currentPassword, ne
 		return err
 	}
 
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
 	var passwordHash string
-	if err := s.DB.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 		SELECT password_hash
 		FROM users
 		WHERE id = $1::uuid
+		FOR UPDATE
 	`, userID).Scan(&passwordHash); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrUserNotFound
@@ -155,7 +164,23 @@ func (s Service) ChangePassword(ctx context.Context, userID, currentPassword, ne
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(currentPassword)); err != nil {
 		return ErrInvalidCredentials
 	}
-	return s.ResetPassword(ctx, userID, newPassword)
+
+	passwordHash, err = hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2, updated_at = now()
+		WHERE id = $1::uuid
+	`, userID, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return tx.Commit(ctx)
 }
 
 func (s Service) ResetPassword(ctx context.Context, userID, newPassword string) error {
