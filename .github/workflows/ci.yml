@@ -116,6 +116,12 @@ jobs:
             exit 1
           fi
 
+          if grep -q '^OPENAI_REQUEST_TIMEOUT_SECONDS=' .env; then
+            sed -i 's/^OPENAI_REQUEST_TIMEOUT_SECONDS=.*/OPENAI_REQUEST_TIMEOUT_SECONDS=600/' .env
+          else
+            printf '\nOPENAI_REQUEST_TIMEOUT_SECONDS=600\n' >> .env
+          fi
+
           docker compose up -d --build
           docker compose up -d --force-recreate caddy
           docker compose ps
