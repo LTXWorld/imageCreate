@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	"imagecreate/api/internal/auth"
 	"imagecreate/api/internal/database"
@@ -37,8 +38,10 @@ func setupAdminHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, http.H
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(auth.RequireAdmin)
 		r.Get("/users", handlers.ListUsers)
+		r.Post("/password", handlers.ChangeOwnPassword)
 		r.Patch("/users/{id}/status", handlers.UpdateUserStatus)
 		r.Post("/users/{id}/credits", handlers.AdjustCredits)
+		r.Post("/users/{id}/password", handlers.ResetUserPassword)
 		r.Get("/invites", handlers.ListInvites)
 		r.Post("/invites", handlers.CreateInvite)
 		r.Get("/audit-logs", handlers.ListAuditLogs)
@@ -320,6 +323,117 @@ func TestAdminGenerationListDoesNotReturnImageURL(t *testing.T) {
 	}
 }
 
+func TestAdminCanChangeOwnPassword(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUserWithPassword(t, ctx, db, "change-password-admin", models.RoleAdmin, 0, "old-password")
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/password", `{"current_password":"old-password","new_password":"new-password"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var passwordHash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, adminID).Scan(&passwordHash); err != nil {
+		t.Fatalf("query password hash: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("new-password")); err != nil {
+		t.Fatalf("new password does not verify: %v", err)
+	}
+
+	var auditRows int
+	var metadata string
+	if err := db.QueryRow(ctx, `
+		SELECT count(*), COALESCE(max(metadata::text), '')
+		FROM audit_logs
+		WHERE actor_user_id = $1 AND target_user_id = $1 AND action = 'change_own_password'
+	`, adminID).Scan(&auditRows, &metadata); err != nil {
+		t.Fatalf("query audit rows: %v", err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("change_own_password audit rows = %d, want 1", auditRows)
+	}
+	if strings.Contains(metadata, "new-password") {
+		t.Fatalf("audit metadata contains new password: %s", metadata)
+	}
+}
+
+func TestAdminChangeOwnPasswordRejectsWrongCurrentPassword(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUserWithPassword(t, ctx, db, "wrong-current-admin", models.RoleAdmin, 0, "old-password")
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/password", `{"current_password":"wrong-password","new_password":"new-password"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+	var passwordHash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, adminID).Scan(&passwordHash); err != nil {
+		t.Fatalf("query password hash: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("old-password")); err != nil {
+		t.Fatalf("old password no longer verifies: %v", err)
+	}
+}
+
+func TestAdminCanResetUserPassword(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUserWithPassword(t, ctx, db, "reset-password-admin", models.RoleAdmin, 0, "admin-password")
+	userID := insertAdminTestUserWithPassword(t, ctx, db, "reset-password-user", models.RoleUser, 0, "old-password")
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/password", `{"new_password":"new-password"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var passwordHash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&passwordHash); err != nil {
+		t.Fatalf("query password hash: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("new-password")); err != nil {
+		t.Fatalf("new password does not verify: %v", err)
+	}
+
+	var auditRows int
+	var metadata string
+	if err := db.QueryRow(ctx, `
+		SELECT count(*), COALESCE(max(metadata::text), '')
+		FROM audit_logs
+		WHERE actor_user_id = $1 AND target_user_id = $2 AND action = 'reset_user_password'
+	`, adminID, userID).Scan(&auditRows, &metadata); err != nil {
+		t.Fatalf("query audit rows: %v", err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("reset_user_password audit rows = %d, want 1", auditRows)
+	}
+	if strings.Contains(metadata, "new-password") {
+		t.Fatalf("audit metadata contains new password: %s", metadata)
+	}
+}
+
+func TestAdminResetUserPasswordRejectsShortPassword(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUserWithPassword(t, ctx, db, "short-reset-admin", models.RoleAdmin, 0, "admin-password")
+	userID := insertAdminTestUserWithPassword(t, ctx, db, "short-reset-user", models.RoleUser, 0, "old-password")
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/password", `{"new_password":"12345"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
 func TestAdminCanDisableUser(t *testing.T) {
 	ctx, db, handler := setupAdminHandlerTest(t)
 	adminID := insertAdminTestUser(t, ctx, db, "status-admin", models.RoleAdmin, 0)
@@ -351,6 +465,23 @@ func insertAdminTestUser(t *testing.T, ctx context.Context, db *pgxpool.Pool, us
 		VALUES ($1, 'hash', $2, $3, $4)
 		RETURNING id::text
 	`, username, role, models.UserStatusActive, credits).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	return userID
+}
+
+func insertAdminTestUserWithPassword(t *testing.T, ctx context.Context, db *pgxpool.Pool, username, role string, credits int, password string) string {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	var userID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id::text
+	`, username, string(hash), role, models.UserStatusActive, credits).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	return userID

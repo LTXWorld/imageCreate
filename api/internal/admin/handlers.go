@@ -65,6 +65,96 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]userResponse{"users": users})
 }
 
+func (h Handlers) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.CurrentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "请先登录")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+
+	if err := (auth.Service{DB: h.DB}).ChangePassword(r.Context(), actor.ID, req.CurrentPassword, req.NewPassword); err != nil {
+		writePasswordError(w, err)
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if err := insertAuditLog(r.Context(), tx, actor.ID, actor.ID, "change_own_password", map[string]any{"username": actor.Username}); err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h Handlers) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.CurrentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "请先登录")
+		return
+	}
+
+	userID, ok := validRouteUUID(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+
+	target, err := findUserSummary(r.Context(), h.DB, userID)
+	if err != nil {
+		writePasswordError(w, err)
+		return
+	}
+
+	if err := (auth.Service{DB: h.DB}).ResetPassword(r.Context(), userID, req.NewPassword); err != nil {
+		writePasswordError(w, err)
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if err := insertAuditLog(r.Context(), tx, actor.ID, userID, "reset_user_password", map[string]any{"username": target.Username}); err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (h Handlers) UpdateUserStatus(w http.ResponseWriter, r *http.Request) {
 	actor, ok := auth.CurrentUser(r)
 	if !ok {
@@ -350,6 +440,11 @@ type userResponse struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type userSummary struct {
+	ID       string
+	Username string
+}
+
 type inviteResponse struct {
 	ID             string     `json:"id"`
 	Code           string     `json:"code"`
@@ -434,6 +529,19 @@ func adjustCredits(ctx context.Context, tx pgx.Tx, userID string, amount int, re
 	return user, nil
 }
 
+func findUserSummary(ctx context.Context, db *pgxpool.Pool, userID string) (userSummary, error) {
+	var user userSummary
+	err := db.QueryRow(ctx, `
+		SELECT id::text, username
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&user.ID, &user.Username)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return userSummary{}, auth.ErrUserNotFound
+	}
+	return user, err
+}
+
 func validateInviteInitialCredits(value int) error {
 	if value < 0 || !isPostgresInteger(value) {
 		return fmt.Errorf("initial_credits out of range")
@@ -514,6 +622,19 @@ func writeCreditError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "积分余额超出范围")
 	case errors.Is(err, credits.ErrInsufficientCredits):
 		writeError(w, http.StatusPaymentRequired, "积分不足")
+	default:
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+	}
+}
+
+func writePasswordError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, auth.ErrPasswordTooShort):
+		writeError(w, http.StatusBadRequest, "新密码至少 6 位")
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		writeError(w, http.StatusUnauthorized, "当前密码错误")
+	case errors.Is(err, auth.ErrUserNotFound):
+		writeError(w, http.StatusNotFound, "用户不存在")
 	default:
 		writeError(w, http.StatusInternalServerError, "服务器错误")
 	}

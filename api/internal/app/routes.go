@@ -37,8 +37,10 @@ func (a *App) Routes() http.Handler {
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(auth.RequireAdmin)
 		r.Get("/users", a.adminHandlers.ListUsers)
+		r.Post("/password", a.adminHandlers.ChangeOwnPassword)
 		r.Patch("/users/{id}/status", a.adminHandlers.UpdateUserStatus)
 		r.Post("/users/{id}/credits", a.adminHandlers.AdjustCredits)
+		r.Post("/users/{id}/password", a.adminHandlers.ResetUserPassword)
 		r.Get("/invites", a.adminHandlers.ListInvites)
 		r.Post("/invites", a.adminHandlers.CreateInvite)
 		r.Get("/audit-logs", a.adminHandlers.ListAuditLogs)
