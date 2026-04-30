@@ -120,6 +120,72 @@ describe("WorkspacePage", () => {
     );
   });
 
+  test("shows a progress bar while a queued task is waiting", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-30T08:00:45Z"));
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-progress-queued",
+          prompt: "森林小屋",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "queued",
+          created_at: "2026-04-30T08:00:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "森林小屋" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const progress = screen.getByRole("progressbar", { name: "生成进度" });
+    expect(progress).toHaveAttribute("aria-valuenow", "15");
+    expect(screen.getByText("正在排队")).toBeInTheDocument();
+    expect(screen.getByText("15%")).toBeInTheDocument();
+  });
+
+  test("advances local progress for a running task between polling requests", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-30T08:00:30Z"));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-progress-running",
+          prompt: "海上灯塔",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "running",
+          created_at: "2026-04-30T08:00:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "海上灯塔" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("progressbar", { name: "生成进度" })).toHaveAttribute("aria-valuenow", "36");
+    expect(screen.getByText("正在绘制细节")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByRole("progressbar", { name: "生成进度" })).toHaveAttribute("aria-valuenow", "37");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test("shows fixed failure guidance without upstream details", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       jsonResponse({
@@ -143,6 +209,38 @@ describe("WorkspacePage", () => {
 
     expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
     expect(screen.queryByText("upstream internal details")).not.toBeInTheDocument();
+  });
+
+  test("keeps failure guidance visible with stable progress", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-30T08:01:00Z"));
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-progress-failed",
+          prompt: "海边",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "failed",
+          error_code: "timeout",
+          message: "生成超时，本次额度已退回，请稍后重试。",
+          created_at: "2026-04-30T08:00:00Z",
+          completed_at: "2026-04-30T08:01:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "海边" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("progressbar", { name: "生成进度" })).toHaveAttribute("aria-valuenow", "47");
+    expect(screen.getByText("生成未完成")).toBeInTheDocument();
+    expect(screen.getByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
   });
 
   test("shows sanitized failure guidance for known safe error codes", async () => {
@@ -195,5 +293,32 @@ describe("WorkspacePage", () => {
     const downloadLink = await screen.findByRole("link", { name: "下载图片" });
     expect(downloadLink).toHaveAttribute("href", "/api/generations/task-5/image");
     expect(downloadLink).toHaveAttribute("download", "imagecreate-task-5-16-9.png");
+  });
+
+  test("shows completed progress when generation succeeds", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-progress-succeeded",
+          prompt: "星空城堡",
+          ratio: "16:9",
+          size: "1280x720",
+          status: "succeeded",
+          image_url: "/api/generations/task-progress-succeeded/image",
+          created_at: "2026-04-30T08:00:00Z",
+          completed_at: "2026-04-30T08:01:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "星空城堡");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    const progress = await screen.findByRole("progressbar", { name: "生成进度" });
+    expect(progress).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByText("生成完成")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "下载图片" })).toBeInTheDocument();
   });
 });

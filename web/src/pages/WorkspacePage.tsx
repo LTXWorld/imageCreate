@@ -12,6 +12,15 @@ const ratios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const activeStatuses = new Set<GenerationTask["status"]>(["queued", "running"]);
 const safeFailureCodes = new Set(["content_rejected", "rate_limited", "timeout", "upstream_error"]);
 const taskPollingIntervalMS = 5000;
+const progressTickIntervalMS = 1000;
+const queuedProgressDurationMS = 90_000;
+const runningProgressDurationMS = 180_000;
+
+type GenerationProgressState = {
+  percent: number;
+  label: string;
+  helperText: string;
+};
 
 type WorkspacePageProps = {
   user: User;
@@ -20,6 +29,55 @@ type WorkspacePageProps = {
 
 function isActiveTask(task: GenerationTask | null) {
   return task ? activeStatuses.has(task.status) : false;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function elapsedTaskMilliseconds(task: GenerationTask, now: number) {
+  const createdAt = Date.parse(task.createdAt);
+  if (Number.isNaN(createdAt)) return 0;
+  return Math.max(0, now - createdAt);
+}
+
+function progressBetween(elapsedMS: number, durationMS: number, start: number, end: number) {
+  const ratio = clamp(elapsedMS / durationMS, 0, 1);
+  return Math.round(start + (end - start) * ratio);
+}
+
+function getGenerationProgress(task: GenerationTask, now: number): GenerationProgressState {
+  const elapsedMS = elapsedTaskMilliseconds(task, now);
+
+  if (task.status === "succeeded") {
+    return {
+      percent: 100,
+      label: "生成完成",
+      helperText: "图片已生成，可以预览或下载。",
+    };
+  }
+
+  if (task.status === "failed") {
+    return {
+      percent: progressBetween(elapsedMS, runningProgressDurationMS, 25, 92),
+      label: "生成未完成",
+      helperText: "本次生成已结束，点数会按失败规则退回。",
+    };
+  }
+
+  if (task.status === "running") {
+    return {
+      percent: progressBetween(elapsedMS, runningProgressDurationMS, 25, 92),
+      label: elapsedMS > 120_000 ? "即将完成" : "正在绘制细节",
+      helperText: "请保持页面打开，完成后会自动显示结果。",
+    };
+  }
+
+  return {
+    percent: progressBetween(elapsedMS, queuedProgressDurationMS, 5, 25),
+    label: "正在排队",
+    helperText: "任务已提交，系统正在准备生成。",
+  };
 }
 
 function statusText(status: GenerationTask["status"]) {
@@ -35,11 +93,36 @@ function safeFailureDetail(task: GenerationTask) {
     : "";
 }
 
+function GenerationProgress({ task, now }: { task: GenerationTask; now: number }) {
+  const progress = getGenerationProgress(task, now);
+
+  return (
+    <div className="generation-progress" aria-label="生成进度详情">
+      <div className="progress-row">
+        <strong>{progress.label}</strong>
+        <span>{progress.percent}%</span>
+      </div>
+      <div
+        aria-label="生成进度"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={progress.percent}
+        className="progress-track"
+        role="progressbar"
+      >
+        <span className="progress-fill" style={{ width: `${progress.percent}%` }} />
+      </div>
+      <p className="muted-text">{progress.helperText}</p>
+    </div>
+  );
+}
+
 export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
   const [submitting, setSubmitting] = useState(false);
   const [currentTask, setCurrentTask] = useState<GenerationTask | null>(null);
+  const [progressNow, setProgressNow] = useState(() => Date.now());
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -53,6 +136,17 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
           setError(err instanceof Error ? err.message : "查询任务失败");
         });
     }, taskPollingIntervalMS);
+
+    return () => window.clearInterval(timer);
+  }, [currentTask]);
+
+  useEffect(() => {
+    if (!currentTask || !activeStatuses.has(currentTask.status)) return undefined;
+
+    setProgressNow(Date.now());
+    const timer = window.setInterval(() => {
+      setProgressNow(Date.now());
+    }, progressTickIntervalMS);
 
     return () => window.clearInterval(timer);
   }, [currentTask]);
@@ -162,7 +256,7 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
                 </div>
               </dl>
 
-              {isActiveTask(currentTask) ? <p className="muted-text">生成中</p> : null}
+              {currentTask.status !== "canceled" ? <GenerationProgress task={currentTask} now={progressNow} /> : null}
               {currentTask.status === "failed" ? (
                 <>
                   <p className="form-error" role="alert">
