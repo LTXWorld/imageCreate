@@ -209,6 +209,12 @@ export function AdminPage({ user }: AdminPageProps) {
     }));
   }
 
+  function handleTabChange(tab: AdminTab) {
+    setActiveTab(tab);
+    setError("");
+    setNotice("");
+  }
+
   async function handleOwnPasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy("own-password");
@@ -278,7 +284,7 @@ export function AdminPage({ user }: AdminPageProps) {
             aria-selected={activeTab === tab.id}
             className={activeTab === tab.id ? "admin-tab active" : "admin-tab"}
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             role="tab"
             type="button"
           >
@@ -349,7 +355,9 @@ export function AdminPage({ user }: AdminPageProps) {
                               <span>{item.username} 的新密码</span>
                               <input
                                 aria-label={`${item.username} 的新密码`}
+                                autoComplete="new-password"
                                 minLength={6}
+                                name="reset-password"
                                 onChange={(event) => setResetPasswordDraft(event.target.value)}
                                 required
                                 type="password"
@@ -506,6 +514,8 @@ export function AdminPage({ user }: AdminPageProps) {
             <label className="field">
               <span>当前密码</span>
               <input
+                autoComplete="current-password"
+                name="current-password"
                 onChange={(event) => setOwnPasswordDraft((current) => ({
                   ...current,
                   currentPassword: event.target.value,
@@ -518,7 +528,9 @@ export function AdminPage({ user }: AdminPageProps) {
             <label className="field">
               <span>新密码</span>
               <input
+                autoComplete="new-password"
                 minLength={6}
+                name="new-password"
                 onChange={(event) => setOwnPasswordDraft((current) => ({
                   ...current,
                   newPassword: event.target.value,
@@ -531,7 +543,9 @@ export function AdminPage({ user }: AdminPageProps) {
             <label className="field">
               <span>确认新密码</span>
               <input
+                autoComplete="new-password"
                 minLength={6}
+                name="confirm-password"
                 onChange={(event) => setOwnPasswordDraft((current) => ({
                   ...current,
                   confirmPassword: event.target.value,

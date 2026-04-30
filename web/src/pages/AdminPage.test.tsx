@@ -173,9 +173,18 @@ describe("AdminPage", () => {
     render(<AdminPage user={adminUser} />);
 
     await userEvent.click(await screen.findByRole("tab", { name: "安全" }));
-    await userEvent.type(screen.getByLabelText("当前密码"), "old-password");
-    await userEvent.type(screen.getByLabelText("新密码"), "new-password");
-    await userEvent.type(screen.getByLabelText("确认新密码"), "new-password");
+    const currentPasswordInput = screen.getByLabelText("当前密码");
+    const newPasswordInput = screen.getByLabelText("新密码");
+    const confirmPasswordInput = screen.getByLabelText("确认新密码");
+    expect(currentPasswordInput).toHaveAttribute("name", "current-password");
+    expect(currentPasswordInput).toHaveAttribute("autocomplete", "current-password");
+    expect(newPasswordInput).toHaveAttribute("name", "new-password");
+    expect(newPasswordInput).toHaveAttribute("autocomplete", "new-password");
+    expect(confirmPasswordInput).toHaveAttribute("name", "confirm-password");
+    expect(confirmPasswordInput).toHaveAttribute("autocomplete", "new-password");
+    await userEvent.type(currentPasswordInput, "old-password");
+    await userEvent.type(newPasswordInput, "new-password");
+    await userEvent.type(confirmPasswordInput, "new-password");
     await userEvent.click(screen.getByRole("button", { name: "更新密码" }));
 
     await waitFor(() => {
@@ -190,6 +199,24 @@ describe("AdminPage", () => {
     expect(await screen.findByText("密码已更新")).toBeInTheDocument();
   });
 
+  test("clears success notices when switching tabs", async () => {
+    mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "安全" }));
+    await userEvent.type(screen.getByLabelText("当前密码"), "old-password");
+    await userEvent.type(screen.getByLabelText("新密码"), "new-password");
+    await userEvent.type(screen.getByLabelText("确认新密码"), "new-password");
+    await userEvent.click(screen.getByRole("button", { name: "更新密码" }));
+
+    expect(await screen.findByText("密码已更新")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "用户" }));
+
+    expect(screen.queryByText("密码已更新")).not.toBeInTheDocument();
+  });
+
   test("resets a user password from the users table", async () => {
     const fetchMock = mockAdminFetch();
 
@@ -197,7 +224,10 @@ describe("AdminPage", () => {
 
     const row = await screen.findByRole("row", { name: /alice/ });
     await userEvent.click(within(row).getByRole("button", { name: "重置密码" }));
-    await userEvent.type(screen.getByLabelText("alice 的新密码"), "new-password");
+    const resetPasswordInput = screen.getByLabelText("alice 的新密码");
+    expect(resetPasswordInput).toHaveAttribute("name", "reset-password");
+    expect(resetPasswordInput).toHaveAttribute("autocomplete", "new-password");
+    await userEvent.type(resetPasswordInput, "new-password");
     await userEvent.click(screen.getByRole("button", { name: "确认重置" }));
 
     await waitFor(() => {
