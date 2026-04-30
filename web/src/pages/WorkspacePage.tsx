@@ -89,6 +89,9 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
             <span>当前余额</span>
             <strong>{user.creditBalance} 点</strong>
           </div>
+          <p className="usage-note">
+            输入提示词，选择画面比例后开始生成。每次生成 1 张图，扣 1 点；失败会自动退回点数。生成图片保留 30 天。
+          </p>
 
           <label className="field">
             <span>提示词</span>
@@ -152,7 +155,7 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
               {isActiveTask(currentTask) ? <p className="muted-text">生成中</p> : null}
               {currentTask.status === "failed" ? (
                 <p className="form-error" role="alert">
-                  {currentTask.message ?? "生成失败，请稍后重试"}
+                  生成失败，已退回 1 点，可调整提示词后重试。
                 </p>
               ) : null}
               {currentTask.status === "succeeded" && currentTask.imageUrl ? (

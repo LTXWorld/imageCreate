@@ -28,6 +28,11 @@ describe("WorkspacePage", () => {
     vi.restoreAllMocks();
   });
 
+  test("shows simple point, refund, and retention guidance", () => {
+    render(<WorkspacePage user={user} />);
+    expect(screen.getByText("输入提示词，选择画面比例后开始生成。每次生成 1 张图，扣 1 点；失败会自动退回点数。生成图片保留 30 天。")).toBeInTheDocument();
+  });
+
   test("creates a generation with prompt and ratio", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -102,7 +107,7 @@ describe("WorkspacePage", () => {
     }, { timeout: 3000 });
   });
 
-  test("shows Chinese failure message from API", async () => {
+  test("shows fixed failure guidance without upstream details", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       jsonResponse({
         task: {
@@ -111,7 +116,7 @@ describe("WorkspacePage", () => {
           ratio: "1:1",
           size: "1024x1024",
           status: "failed",
-          error_message: "生成失败：余额不足",
+          error_message: "upstream internal details",
           created_at: "2026-04-30T08:00:00Z",
           completed_at: "2026-04-30T08:01:00Z",
         },
@@ -123,6 +128,7 @@ describe("WorkspacePage", () => {
     await userEvent.type(screen.getByLabelText("提示词"), "海边");
     await userEvent.click(screen.getByRole("button", { name: "生成" }));
 
-    expect(await screen.findByText("生成失败：余额不足")).toBeInTheDocument();
+    expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
+    expect(screen.queryByText("upstream internal details")).not.toBeInTheDocument();
   });
 });

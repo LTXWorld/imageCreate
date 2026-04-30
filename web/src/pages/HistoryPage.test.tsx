@@ -45,6 +45,8 @@ describe("HistoryPage", () => {
 
     render(<HistoryPage />);
 
+    expect(screen.getByText("这里只显示最近 30 天的生成记录。请及时下载需要长期保存的图片。")).toBeInTheDocument();
+
     await waitFor(() => {
       expect(screen.getByText("我的山谷")).toBeInTheDocument();
     });

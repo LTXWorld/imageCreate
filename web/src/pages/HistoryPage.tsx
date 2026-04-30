@@ -67,6 +67,7 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
         <div className="section-heading">
           <p className="eyebrow">30 天记录</p>
           <h2 id="history-title">历史记录</h2>
+          <p className="muted-text">这里只显示最近 30 天的生成记录。请及时下载需要长期保存的图片。</p>
         </div>
         <button className="secondary-button" type="button" onClick={onWorkspaceClick}>
           返回创作台
