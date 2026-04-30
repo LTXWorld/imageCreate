@@ -17,9 +17,8 @@ docker compose exec -T postgres pg_dump -U postgres -d imagecreate | gzip -9 > "
 
 docker run --rm \
   -v imagecreate_images:/images:ro \
-  -v "$BACKUP_DIR:/backups" \
   alpine:3.20 \
-  tar -czf "/backups/$(basename "$images_backup")" -C /images .
+  tar -czf - -C /images . > "$images_backup"
 
 find "$BACKUP_DIR" -type f \( -name "postgres-*.sql.gz" -o -name "images-*.tar.gz" \) -mtime +"$RETENTION_DAYS" -delete
 
