@@ -158,6 +158,108 @@ func TestLoginRejectsDisabledUser(t *testing.T) {
 	}
 }
 
+func TestValidateNewPasswordRequiresSixCharacters(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+		valid    bool
+	}{
+		{name: "six characters", password: "123456", valid: true},
+		{name: "longer password", password: "secure-password", valid: true},
+		{name: "five characters", password: "12345", valid: false},
+		{name: "empty", password: "", valid: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateNewPassword(tc.password)
+			if tc.valid && err != nil {
+				t.Fatalf("ValidateNewPassword(%q) error = %v, want nil", tc.password, err)
+			}
+			if !tc.valid && !errors.Is(err, ErrPasswordTooShort) {
+				t.Fatalf("ValidateNewPassword(%q) error = %v, want ErrPasswordTooShort", tc.password, err)
+			}
+		})
+	}
+}
+
+func TestChangePasswordRequiresCurrentPassword(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	service := Service{DB: db}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("old-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	var userID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ('password-admin', $1, $2, $3, 0)
+		RETURNING id::text
+	`, string(hash), models.RoleAdmin, models.UserStatusActive).Scan(&userID); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+
+	if err := service.ChangePassword(ctx, userID, "old-password", "new-password"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if _, err := service.Login(ctx, "password-admin", "new-password"); err != nil {
+		t.Fatalf("login with new password: %v", err)
+	}
+	if _, err := service.Login(ctx, "password-admin", "old-password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("login with old password error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	service := Service{DB: db}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("old-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	var userID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ('wrong-current-admin', $1, $2, $3, 0)
+		RETURNING id::text
+	`, string(hash), models.RoleAdmin, models.UserStatusActive).Scan(&userID); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+
+	err = service.ChangePassword(ctx, userID, "bad-password", "new-password")
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("ChangePassword error = %v, want ErrInvalidCredentials", err)
+	}
+	if _, err := service.Login(ctx, "wrong-current-admin", "old-password"); err != nil {
+		t.Fatalf("old password should still work: %v", err)
+	}
+}
+
+func TestResetPasswordUpdatesTargetPassword(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	service := Service{DB: db}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("old-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	var userID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ('reset-user', $1, $2, $3, 0)
+		RETURNING id::text
+	`, string(hash), models.RoleUser, models.UserStatusActive).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	if err := service.ResetPassword(ctx, userID, "new-password"); err != nil {
+		t.Fatalf("ResetPassword: %v", err)
+	}
+	if _, err := service.Login(ctx, "reset-user", "new-password"); err != nil {
+		t.Fatalf("login with reset password: %v", err)
+	}
+}
+
 func TestEnsureAdminCreatesConfiguredAdminOnce(t *testing.T) {
 	ctx, db := setupAuthTestDB(t)
 	service := Service{DB: db}

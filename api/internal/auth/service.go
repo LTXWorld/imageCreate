@@ -20,7 +20,11 @@ var (
 	ErrDisabledUser       = errors.New("disabled user")
 	ErrInvalidInput       = errors.New("invalid input")
 	ErrAdminConflict      = errors.New("admin username conflict")
+	ErrPasswordTooShort   = errors.New("password too short")
+	ErrUserNotFound       = errors.New("user not found")
 )
+
+const MinPasswordLength = 6
 
 type Service struct {
 	DB *pgxpool.Pool
@@ -34,14 +38,32 @@ type User struct {
 	CreditBalance int    `json:"credit_balance"`
 }
 
+func ValidateNewPassword(password string) error {
+	if len(password) < MinPasswordLength {
+		return ErrPasswordTooShort
+	}
+	return nil
+}
+
+func hashPassword(password string) (string, error) {
+	if err := ValidateNewPassword(password); err != nil {
+		return "", err
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash password: %w", err)
+	}
+	return string(passwordHash), nil
+}
+
 func (s Service) Register(ctx context.Context, username, password, inviteCode string) (User, error) {
 	if username == "" || password == "" || inviteCode == "" {
 		return User{}, ErrInvalidInput
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := hashPassword(password)
 	if err != nil {
-		return User{}, fmt.Errorf("hash password: %w", err)
+		return User{}, err
 	}
 
 	tx, err := s.DB.Begin(ctx)
@@ -75,7 +97,7 @@ func (s Service) Register(ctx context.Context, username, password, inviteCode st
 		INSERT INTO users (username, password_hash, role, status, credit_balance)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id::text, username, role, status, credit_balance
-	`, username, string(passwordHash), models.RoleUser, models.UserStatusActive, initialCredits).Scan(
+	`, username, passwordHash, models.RoleUser, models.UserStatusActive, initialCredits).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Role,
@@ -111,6 +133,49 @@ func (s Service) Register(ctx context.Context, username, password, inviteCode st
 	}
 
 	return user, nil
+}
+
+func (s Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	if err := ValidateNewPassword(newPassword); err != nil {
+		return err
+	}
+
+	var passwordHash string
+	if err := s.DB.QueryRow(ctx, `
+		SELECT password_hash
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&passwordHash); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(currentPassword)); err != nil {
+		return ErrInvalidCredentials
+	}
+	return s.ResetPassword(ctx, userID, newPassword)
+}
+
+func (s Service) ResetPassword(ctx context.Context, userID, newPassword string) error {
+	passwordHash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	tag, err := s.DB.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2, updated_at = now()
+		WHERE id = $1::uuid
+	`, userID, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (s Service) Login(ctx context.Context, username, password string) (User, error) {
@@ -153,16 +218,16 @@ func (s Service) EnsureAdmin(ctx context.Context, username, password string) err
 		return ErrInvalidInput
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := hashPassword(password)
 	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+		return err
 	}
 
 	_, err = s.DB.Exec(ctx, `
 		INSERT INTO users (username, password_hash, role, status, credit_balance)
 		VALUES ($1, $2, $3, $4, 0)
 		ON CONFLICT (username) DO NOTHING
-	`, username, string(passwordHash), models.RoleAdmin, models.UserStatusActive)
+	`, username, passwordHash, models.RoleAdmin, models.UserStatusActive)
 	if err != nil {
 		return err
 	}
