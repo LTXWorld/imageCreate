@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { Fragment, FormEvent, useEffect, useState } from "react";
 
 import {
   api,
@@ -17,7 +17,7 @@ type AdminPageProps = {
   user: User;
 };
 
-type AdminTab = "users" | "invites" | "credits" | "audit";
+type AdminTab = "users" | "invites" | "credits" | "security" | "audit";
 
 type CreditDraft = {
   amount: string;
@@ -28,6 +28,7 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "users", label: "用户" },
   { id: "invites", label: "邀请码" },
   { id: "credits", label: "额度" },
+  { id: "security", label: "安全" },
   { id: "audit", label: "审计" },
 ];
 
@@ -58,9 +59,17 @@ export function AdminPage({ user }: AdminPageProps) {
   const [inviteCode, setInviteCode] = useState("");
   const [inviteCredits, setInviteCredits] = useState("5");
   const [creditDrafts, setCreditDrafts] = useState<Record<string, CreditDraft>>({});
+  const [ownPasswordDraft, setOwnPasswordDraft] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [resetPasswordUserId, setResetPasswordUserId] = useState("");
+  const [resetPasswordDraft, setResetPasswordDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (user.role !== "admin") {
@@ -115,6 +124,7 @@ export function AdminPage({ user }: AdminPageProps) {
     event.preventDefault();
     setBusy("invite");
     setError("");
+    setNotice("");
 
     try {
       const body = await api<{ invite: unknown }>("/api/admin/invites", {
@@ -139,6 +149,7 @@ export function AdminPage({ user }: AdminPageProps) {
   async function handleStatusChange(target: AdminUser, status: AdminUser["status"]) {
     setBusy(`status-${target.id}`);
     setError("");
+    setNotice("");
 
     try {
       const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/status`, {
@@ -162,6 +173,7 @@ export function AdminPage({ user }: AdminPageProps) {
 
     setBusy(`credits-${target.id}`);
     setError("");
+    setNotice("");
 
     try {
       const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/credits`, {
@@ -197,6 +209,60 @@ export function AdminPage({ user }: AdminPageProps) {
     }));
   }
 
+  async function handleOwnPasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy("own-password");
+    setError("");
+    setNotice("");
+
+    if (ownPasswordDraft.newPassword !== ownPasswordDraft.confirmPassword) {
+      setError("两次输入的新密码不一致");
+      setBusy("");
+      return;
+    }
+
+    try {
+      await api("/api/admin/password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: ownPasswordDraft.currentPassword,
+          new_password: ownPasswordDraft.newPassword,
+        }),
+      });
+      setOwnPasswordDraft({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      setNotice("密码已更新");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新密码失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleResetPasswordSubmit(event: FormEvent<HTMLFormElement>, target: AdminUser) {
+    event.preventDefault();
+    setBusy(`reset-password-${target.id}`);
+    setError("");
+    setNotice("");
+
+    try {
+      await api(`/api/admin/users/${target.id}/password`, {
+        method: "POST",
+        body: JSON.stringify({ new_password: resetPasswordDraft }),
+      });
+      setResetPasswordUserId("");
+      setResetPasswordDraft("");
+      setNotice("用户密码已重置");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重置用户密码失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <section className="admin-page" aria-labelledby="admin-title">
       <div className="section-toolbar">
@@ -222,6 +288,7 @@ export function AdminPage({ user }: AdminPageProps) {
       </div>
 
       {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {notice ? <p className="form-success" role="status">{notice}</p> : null}
       {loading ? <div className="panel history-empty">正在加载后台数据...</div> : null}
 
       {!loading && activeTab === "users" ? (
@@ -241,23 +308,76 @@ export function AdminPage({ user }: AdminPageProps) {
               </thead>
               <tbody>
                 {users.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.username}</td>
-                    <td>{item.role}</td>
-                    <td>{item.status}</td>
-                    <td>{item.creditBalance} 点</td>
-                    <td>{formatTime(item.createdAt)}</td>
-                    <td>
-                      <button
-                        className="secondary-button compact-button"
-                        disabled={busy === `status-${item.id}`}
-                        onClick={() => void handleStatusChange(item, item.status === "active" ? "disabled" : "active")}
-                        type="button"
-                      >
-                        {item.status === "active" ? "禁用" : "启用"}
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={item.id}>
+                    <tr>
+                      <td>{item.username}</td>
+                      <td>{item.role}</td>
+                      <td>{item.status}</td>
+                      <td>{item.creditBalance} 点</td>
+                      <td>{formatTime(item.createdAt)}</td>
+                      <td>
+                        <button
+                          className="secondary-button compact-button"
+                          disabled={busy === `status-${item.id}`}
+                          onClick={() => void handleStatusChange(item, item.status === "active" ? "disabled" : "active")}
+                          type="button"
+                        >
+                          {item.status === "active" ? "禁用" : "启用"}
+                        </button>
+                        <button
+                          className="secondary-button compact-button"
+                          onClick={() => {
+                            setResetPasswordUserId(item.id);
+                            setResetPasswordDraft("");
+                            setError("");
+                            setNotice("");
+                          }}
+                          type="button"
+                        >
+                          重置密码
+                        </button>
+                      </td>
+                    </tr>
+                    {resetPasswordUserId === item.id ? (
+                      <tr>
+                        <td colSpan={6}>
+                          <form
+                            className="inline-admin-form"
+                            onSubmit={(event) => void handleResetPasswordSubmit(event, item)}
+                          >
+                            <label className="field">
+                              <span>{item.username} 的新密码</span>
+                              <input
+                                aria-label={`${item.username} 的新密码`}
+                                minLength={6}
+                                onChange={(event) => setResetPasswordDraft(event.target.value)}
+                                required
+                                type="password"
+                                value={resetPasswordDraft}
+                              />
+                            </label>
+                            <button
+                              className="primary-button compact-button"
+                              disabled={busy === `reset-password-${item.id}`}
+                              type="submit"
+                            >
+                              确认重置
+                            </button>
+                            <button
+                              className="secondary-button compact-button"
+                              onClick={() => {
+                                setResetPasswordUserId("");
+                                setResetPasswordDraft("");
+                              }}
+                              type="button"
+                            >
+                              取消
+                            </button>
+                          </form>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -323,6 +443,7 @@ export function AdminPage({ user }: AdminPageProps) {
       {!loading && activeTab === "credits" ? (
         <section className="admin-section panel" aria-labelledby="credits-title">
           <h3 id="credits-title">额度管理</h3>
+          <p className="muted-text">点数规则：每次生成扣 1 点，失败自动退回 1 点。</p>
           <div className="table-wrap">
             <table className="admin-table credit-table">
               <thead>
@@ -375,6 +496,55 @@ export function AdminPage({ user }: AdminPageProps) {
               </tbody>
             </table>
           </div>
+        </section>
+      ) : null}
+
+      {!loading && activeTab === "security" ? (
+        <section className="admin-section panel" aria-labelledby="security-title">
+          <h3 id="security-title">账号安全</h3>
+          <form className="compact-form" onSubmit={handleOwnPasswordSubmit}>
+            <label className="field">
+              <span>当前密码</span>
+              <input
+                onChange={(event) => setOwnPasswordDraft((current) => ({
+                  ...current,
+                  currentPassword: event.target.value,
+                }))}
+                required
+                type="password"
+                value={ownPasswordDraft.currentPassword}
+              />
+            </label>
+            <label className="field">
+              <span>新密码</span>
+              <input
+                minLength={6}
+                onChange={(event) => setOwnPasswordDraft((current) => ({
+                  ...current,
+                  newPassword: event.target.value,
+                }))}
+                required
+                type="password"
+                value={ownPasswordDraft.newPassword}
+              />
+            </label>
+            <label className="field">
+              <span>确认新密码</span>
+              <input
+                minLength={6}
+                onChange={(event) => setOwnPasswordDraft((current) => ({
+                  ...current,
+                  confirmPassword: event.target.value,
+                }))}
+                required
+                type="password"
+                value={ownPasswordDraft.confirmPassword}
+              />
+            </label>
+            <button className="primary-button" disabled={busy === "own-password"} type="submit">
+              更新密码
+            </button>
+          </form>
         </section>
       ) : null}
 

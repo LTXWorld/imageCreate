@@ -98,6 +98,12 @@ function mockAdminFetch() {
         },
       });
     }
+    if (path === "/api/admin/password" && init?.method === "POST") {
+      return jsonResponse({ ok: true });
+    }
+    if (path === "/api/admin/users/user-1/password" && init?.method === "POST") {
+      return jsonResponse({ ok: true });
+    }
     return jsonResponse({ message: `unexpected request: ${path}` }, 500);
   });
 }
@@ -159,6 +165,61 @@ describe("AdminPage", () => {
         }),
       );
     });
+  });
+
+  test("changes the current admin password from the security tab", async () => {
+    const fetchMock = mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "安全" }));
+    await userEvent.type(screen.getByLabelText("当前密码"), "old-password");
+    await userEvent.type(screen.getByLabelText("新密码"), "new-password");
+    await userEvent.type(screen.getByLabelText("确认新密码"), "new-password");
+    await userEvent.click(screen.getByRole("button", { name: "更新密码" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/password",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ current_password: "old-password", new_password: "new-password" }),
+        }),
+      );
+    });
+    expect(await screen.findByText("密码已更新")).toBeInTheDocument();
+  });
+
+  test("resets a user password from the users table", async () => {
+    const fetchMock = mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    const row = await screen.findByRole("row", { name: /alice/ });
+    await userEvent.click(within(row).getByRole("button", { name: "重置密码" }));
+    await userEvent.type(screen.getByLabelText("alice 的新密码"), "new-password");
+    await userEvent.click(screen.getByRole("button", { name: "确认重置" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/users/user-1/password",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ new_password: "new-password" }),
+        }),
+      );
+    });
+    expect(await screen.findByText("用户密码已重置")).toBeInTheDocument();
+  });
+
+  test("shows the simple credit rule in the credit tab", async () => {
+    mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+
+    expect(screen.getByText("点数规则：每次生成扣 1 点，失败自动退回 1 点。")).toBeInTheDocument();
   });
 
   test("does not render image links in audit task table", async () => {
