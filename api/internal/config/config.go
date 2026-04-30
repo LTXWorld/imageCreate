@@ -19,6 +19,7 @@ type Config struct {
 	OpenAIAPIKey         string
 	OpenAIImageModel     string
 	OpenAIRequestTimeout time.Duration
+	WorkerConcurrency    int
 	ImageStorageDir      string
 	ImageRetentionDays   int
 	ImageSizePresets     map[string]string
@@ -34,6 +35,7 @@ func Load() (Config, error) {
 		OpenAIBaseURL:      strings.TrimRight(os.Getenv("OPENAI_BASE_URL"), "/"),
 		OpenAIAPIKey:       os.Getenv("OPENAI_API_KEY"),
 		OpenAIImageModel:   getenv("OPENAI_IMAGE_MODEL", "gpt-image-2"),
+		WorkerConcurrency:  positiveEnvInt("WORKER_CONCURRENCY", 2),
 		ImageStorageDir:    getenv("IMAGE_STORAGE_DIR", "./storage/images"),
 		ImageRetentionDays: getenvInt("IMAGE_RETENTION_DAYS", 30),
 		ImageSizePresets: map[string]string{
@@ -78,6 +80,14 @@ func getenvInt(key string, fallback int) int {
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func positiveEnvInt(key string, fallback int) int {
+	parsed := getenvInt(key, fallback)
+	if parsed < 1 {
 		return fallback
 	}
 	return parsed

@@ -38,10 +38,13 @@ OPENAI_BASE_URL=<openai-compatible-base-url>
 OPENAI_API_KEY=<openai-compatible-api-key>
 OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_REQUEST_TIMEOUT_SECONDS=600
+WORKER_CONCURRENCY=2
 IMAGE_SIZE_PRESETS={"1:1":"1024x1024","3:4":"768x1024","4:3":"1024x768","9:16":"720x1280","16:9":"1280x720"}
 IMAGE_STORAGE_DIR=/data/images
 IMAGE_RETENTION_DAYS=30
 ```
+
+`WORKER_CONCURRENCY` controls how many generation workers run inside one API container. Each worker processes one image task at a time, so `2` allows up to two simultaneous upstream image requests per API container. Start with `2` for small invite tests, raise carefully after watching upstream rate limits and average latency.
 
 ## GitHub Actions Deploy
 

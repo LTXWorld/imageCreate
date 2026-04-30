@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,6 +138,38 @@ func (s *fakeStorage) Save(ctx context.Context, taskID string, data []byte, now 
 	return s.path, nil
 }
 
+type blockingUpstream struct {
+	mu      sync.Mutex
+	called  int
+	target  int
+	entered chan struct{}
+}
+
+func newBlockingUpstream(target int) *blockingUpstream {
+	return &blockingUpstream{
+		target:  target,
+		entered: make(chan struct{}),
+	}
+}
+
+func (u *blockingUpstream) GenerateImage(ctx context.Context, prompt, size string) (upstream.Result, error) {
+	u.mu.Lock()
+	u.called++
+	if u.called == u.target {
+		close(u.entered)
+	}
+	u.mu.Unlock()
+
+	<-ctx.Done()
+	return upstream.Result{ErrorCode: "timeout", ErrorMessage: "upstream request timed out"}, ctx.Err()
+}
+
+func (u *blockingUpstream) Calls() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.called
+}
+
 func TestWorkerProcessesQueuedTaskSuccessfully(t *testing.T) {
 	ctx, db := setupWorkerTestDB(t)
 	service := workerGenerationService(db)
@@ -213,6 +246,54 @@ func TestWorkerProcessesQueuedTaskSuccessfully(t *testing.T) {
 	}
 	if rows := workerRefundLedgerRows(t, ctx, db, userID, task.ID); rows != 0 {
 		t.Fatalf("refund ledger rows = %d, want 0", rows)
+	}
+}
+
+func TestRunPoolProcessesTasksConcurrently(t *testing.T) {
+	ctx, db := setupWorkerTestDB(t)
+	service := workerGenerationService(db)
+
+	firstUserID := insertWorkerTestUser(t, ctx, db, "worker-pool-one", 1)
+	secondUserID := insertWorkerTestUser(t, ctx, db, "worker-pool-two", 1)
+
+	if _, err := service.CreateTask(ctx, generations.CreateTaskInput{
+		UserID: firstUserID,
+		Prompt: "draw first queued task",
+		Ratio:  "1:1",
+	}); err != nil {
+		t.Fatalf("create first task: %v", err)
+	}
+	if _, err := service.CreateTask(ctx, generations.CreateTaskInput{
+		UserID: secondUserID,
+		Prompt: "draw second queued task",
+		Ratio:  "1:1",
+	}); err != nil {
+		t.Fatalf("create second task: %v", err)
+	}
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	upstreamClient := newBlockingUpstream(2)
+	storage := &fakeStorage{t: t, path: "unused.png"}
+	done := RunPool(runCtx, Worker{
+		DB:          db,
+		Generations: service,
+		Upstream:    upstreamClient,
+		Storage:     storage,
+	}, 2)
+
+	select {
+	case <-upstreamClient.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("upstream calls = %d, want 2 concurrent calls", upstreamClient.Calls())
+	}
+
+	cancelRun()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker pool did not stop after cancellation")
 	}
 }
 

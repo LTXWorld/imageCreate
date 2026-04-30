@@ -14,6 +14,7 @@ import (
 	"imagecreate/api/internal/auth"
 	"imagecreate/api/internal/config"
 	"imagecreate/api/internal/database"
+	"imagecreate/api/internal/worker"
 )
 
 func main() {
@@ -46,11 +47,7 @@ func main() {
 
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
-	workerDone := make(chan struct{})
-	go func() {
-		defer close(workerDone)
-		application.Worker().Run(workerCtx)
-	}()
+	workerDone := worker.RunPool(workerCtx, application.Worker(), cfg.WorkerConcurrency)
 
 	addr := getenv("ADDR", ":8080")
 	server := &http.Server{

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -74,6 +75,28 @@ func (w Worker) Run(ctx context.Context) {
 		}
 		timer.Reset(0)
 	}
+}
+
+func RunPool(ctx context.Context, worker Worker, concurrency int) <-chan struct{} {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		var wg sync.WaitGroup
+		wg.Add(concurrency)
+		for i := 0; i < concurrency; i++ {
+			go func() {
+				defer wg.Done()
+				worker.Run(ctx)
+			}()
+		}
+		wg.Wait()
+	}()
+	return done
 }
 
 func (w Worker) ProcessOne(ctx context.Context) (bool, error) {

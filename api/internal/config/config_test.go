@@ -32,6 +32,28 @@ func TestLoadDefaultsImagePresets(t *testing.T) {
 	if cfg.OpenAIRequestTimeout != 600*time.Second {
 		t.Fatalf("expected default OpenAI request timeout 600s, got %s", cfg.OpenAIRequestTimeout)
 	}
+	if cfg.WorkerConcurrency != 2 {
+		t.Fatalf("expected default worker concurrency 2, got %d", cfg.WorkerConcurrency)
+	}
+}
+
+func TestLoadWorkerConcurrencyFromEnv(t *testing.T) {
+	t.Setenv("APP_BASE_URL", "https://img.example.com")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/imagecreate?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret-with-32-characters")
+	t.Setenv("ADMIN_USERNAME", "admin")
+	t.Setenv("ADMIN_PASSWORD", "admin-password")
+	t.Setenv("OPENAI_BASE_URL", "https://proxy.example.com")
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	t.Setenv("WORKER_CONCURRENCY", "3")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.WorkerConcurrency != 3 {
+		t.Fatalf("expected worker concurrency 3, got %d", cfg.WorkerConcurrency)
+	}
 }
 
 func TestLoadRequiresSecrets(t *testing.T) {
