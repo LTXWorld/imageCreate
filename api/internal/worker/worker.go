@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -39,6 +40,7 @@ type Worker struct {
 	Generations    generations.Service
 	Upstream       Upstream
 	Storage        Storage
+	Logger         *log.Logger
 	PollInterval   time.Duration
 	RunningTimeout time.Duration
 }
@@ -84,12 +86,14 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	if err != nil || !ok {
 		return ok, err
 	}
+	logf(w.Logger, "generation_task_claimed task_id=%s size=%s", task.id, task.size)
 
 	started := time.Now()
 	result, err := w.Upstream.GenerateImage(ctx, task.prompt, task.size)
 	latencyMS := elapsedMilliseconds(started)
 	if err != nil {
 		code, message := upstreamFailure(result)
+		logf(w.Logger, "generation_task_failed task_id=%s latency_ms=%d error_code=%s upstream_request_id=%s worker_ctx_err=%v", task.id, latencyMS, code, result.RequestID, ctx.Err())
 		finalCtx, cancel := finalizationContext()
 		defer cancel()
 		if markErr := w.Generations.MarkFailedAndRefund(finalCtx, task.id, code, message, latencyMS); markErr != nil {
@@ -101,6 +105,7 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	imagePath, err := w.Storage.Save(ctx, task.id, result.ImageBytes, time.Now())
 	latencyMS = elapsedMilliseconds(started)
 	if err != nil {
+		logf(w.Logger, "generation_task_storage_failed task_id=%s latency_ms=%d error_code=%s upstream_request_id=%s worker_ctx_err=%v", task.id, latencyMS, storageErrorCode, result.RequestID, ctx.Err())
 		finalCtx, cancel := finalizationContext()
 		defer cancel()
 		if markErr := w.Generations.MarkFailedAndRefund(finalCtx, task.id, storageErrorCode, storageErrorMessage, latencyMS); markErr != nil {
@@ -113,6 +118,7 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	err = w.Generations.MarkSucceeded(finalCtx, task.id, result.RequestID, imagePath, latencyMS)
 	cancel()
 	if err != nil {
+		logf(w.Logger, "generation_task_finalize_failed task_id=%s latency_ms=%d error_code=%s upstream_request_id=%s", task.id, latencyMS, storageErrorCode, result.RequestID)
 		failCtx, failCancel := finalizationContext()
 		failErr := w.Generations.MarkFailedAndRefund(failCtx, task.id, storageErrorCode, storageErrorMessage, latencyMS)
 		failCancel()
@@ -121,6 +127,7 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 		}
 		return true, nil
 	}
+	logf(w.Logger, "generation_task_succeeded task_id=%s latency_ms=%d upstream_request_id=%s", task.id, latencyMS, result.RequestID)
 	return true, nil
 }
 
@@ -232,4 +239,11 @@ func elapsedMilliseconds(started time.Time) int {
 
 func finalizationContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), finalizationTimeout)
+}
+
+func logf(logger *log.Logger, format string, args ...any) {
+	if logger == nil {
+		logger = log.Default()
+	}
+	logger.Printf(format, args...)
 }

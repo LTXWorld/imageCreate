@@ -10,6 +10,7 @@ import {
 const ratios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const activeStatuses = new Set<GenerationTask["status"]>(["queued", "running"]);
 const safeFailureCodes = new Set(["content_rejected", "rate_limited", "timeout", "upstream_error"]);
+const taskPollingIntervalMS = 5000;
 
 type WorkspacePageProps = {
   user: User;
@@ -50,7 +51,7 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
         .catch((err) => {
           setError(err instanceof Error ? err.message : "查询任务失败");
         });
-    }, 2000);
+    }, taskPollingIntervalMS);
 
     return () => window.clearInterval(timer);
   }, [currentTask]);

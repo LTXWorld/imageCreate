@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 var (
@@ -24,6 +26,7 @@ type Client struct {
 	APIKey     string
 	Model      string
 	HTTPClient *http.Client
+	Logger     *log.Logger
 }
 
 type Result struct {
@@ -89,36 +92,47 @@ func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result,
 		httpClient = http.DefaultClient
 	}
 
+	started := time.Now()
+	logf(c.Logger, "upstream_request_start endpoint=%s model=%s size=%s", endpoint, c.Model, size)
+
 	resp, err := httpClient.Do(req)
+	elapsedMS := elapsedMilliseconds(started)
 	if err != nil {
 		if isContextTimeout(ctx, err) {
+			logf(c.Logger, "upstream_request_error endpoint=%s model=%s size=%s elapsed_ms=%d error_code=timeout ctx_err=%v", endpoint, c.Model, size, elapsedMS, ctx.Err())
 			return errorResult("timeout", sanitizedMessage("timeout")), ErrTimeout
 		}
+		logf(c.Logger, "upstream_request_error endpoint=%s model=%s size=%s elapsed_ms=%d error_code=upstream_error err=%q ctx_err=%v", endpoint, c.Model, size, elapsedMS, err.Error(), ctx.Err())
 		return errorResult("upstream_error", sanitizedMessage("upstream_error")), fmt.Errorf("%w: %s", ErrUpstream, sanitizedMessage("upstream_error"))
 	}
 	defer resp.Body.Close()
 
 	requestID := requestIDFromResponse(resp)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return c.handleErrorResponse(resp, requestID)
+		result, handleErr := c.handleErrorResponse(resp, requestID)
+		logf(c.Logger, "upstream_request_finished endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=%s", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS, result.ErrorCode)
+		return result, handleErr
 	}
-
 	var decoded generateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		logf(c.Logger, "upstream_response_decode_failed endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=upstream_error", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS)
 		return Result{RequestID: requestID, ErrorCode: "upstream_error", ErrorMessage: "decode upstream response"}, fmt.Errorf("%w: decode response", ErrUpstream)
 	}
 	if requestID == "" && decoded.ID != "" {
 		requestID = decoded.ID
 	}
 	if len(decoded.Data) == 0 || decoded.Data[0].B64JSON == "" {
+		logf(c.Logger, "upstream_response_missing_image endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=upstream_error", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS)
 		return Result{RequestID: requestID, ErrorCode: "upstream_error", ErrorMessage: "upstream response missing image"}, fmt.Errorf("%w: missing image", ErrUpstream)
 	}
 
 	imageBytes, err := base64.StdEncoding.DecodeString(decoded.Data[0].B64JSON)
 	if err != nil {
+		logf(c.Logger, "upstream_image_decode_failed endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=upstream_error", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS)
 		return Result{RequestID: requestID, ErrorCode: "upstream_error", ErrorMessage: "decode upstream image"}, fmt.Errorf("%w: decode image", ErrUpstream)
 	}
 
+	logf(c.Logger, "upstream_request_finished endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS)
 	return Result{RequestID: requestID, ImageBytes: imageBytes}, nil
 }
 
@@ -210,6 +224,17 @@ func sanitizedMessage(code string) string {
 
 func errorResult(code, message string) Result {
 	return Result{ErrorCode: code, ErrorMessage: message}
+}
+
+func logf(logger *log.Logger, format string, args ...any) {
+	if logger == nil {
+		logger = log.Default()
+	}
+	logger.Printf(format, args...)
+}
+
+func elapsedMilliseconds(started time.Time) int {
+	return int(time.Since(started).Milliseconds())
 }
 
 func isContextTimeout(ctx context.Context, err error) bool {

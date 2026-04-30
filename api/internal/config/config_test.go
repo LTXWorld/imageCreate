@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadDefaultsImagePresets(t *testing.T) {
 	t.Setenv("APP_BASE_URL", "https://img.example.com")
@@ -25,6 +28,9 @@ func TestLoadDefaultsImagePresets(t *testing.T) {
 	}
 	if cfg.ImageRetentionDays != 30 {
 		t.Fatalf("expected default retention 30, got %d", cfg.ImageRetentionDays)
+	}
+	if cfg.OpenAIRequestTimeout != 600*time.Second {
+		t.Fatalf("expected default OpenAI request timeout 600s, got %s", cfg.OpenAIRequestTimeout)
 	}
 }
 

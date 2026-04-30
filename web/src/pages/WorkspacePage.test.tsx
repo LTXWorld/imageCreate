@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -66,7 +66,8 @@ describe("WorkspacePage", () => {
     });
   });
 
-  test("shows running state while polling", async () => {
+  test("polls active tasks every five seconds", async () => {
+    vi.useFakeTimers();
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockImplementationOnce(() =>
         jsonResponse({
@@ -95,16 +96,28 @@ describe("WorkspacePage", () => {
 
     render(<WorkspacePage user={user} />);
 
-    await userEvent.type(screen.getByLabelText("提示词"), "山谷");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "山谷" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-    expect((await screen.findAllByText("生成中")).length).toBeGreaterThan(0);
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/generations/task-2",
-        expect.objectContaining({ credentials: "include" }),
-      );
-    }, { timeout: 3000 });
+    expect(screen.getAllByText("生成中").length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(4999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/generations/task-2",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   test("shows fixed failure guidance without upstream details", async () => {

@@ -1,9 +1,11 @@
 package upstream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,6 +115,56 @@ func TestGenerateImageMapsContentRejection(t *testing.T) {
 	}
 	if !errors.Is(err, ErrContentRejected) {
 		t.Fatalf("error = %v, want ErrContentRejected", err)
+	}
+}
+
+func TestGenerateImageLogsUpstreamHTTPFailureMetadata(t *testing.T) {
+	const apiKey = "sk-test-secret-key"
+	const prompt = "draw a private prompt"
+	var logs bytes.Buffer
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-Id", "req-failed-123")
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error":{"message":"provider exploded"}}`, http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	client := Client{
+		BaseURL:    server.URL,
+		APIKey:     apiKey,
+		Model:      "gpt-image-2",
+		HTTPClient: server.Client(),
+		Logger:     log.New(&logs, "", 0),
+	}
+
+	result, err := client.GenerateImage(context.Background(), prompt, "1024x1024")
+	if err == nil {
+		t.Fatal("generate image error = nil, want upstream error")
+	}
+	if result.ErrorCode != "upstream_error" {
+		t.Fatalf("error code = %q, want upstream_error", result.ErrorCode)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"upstream_request_start",
+		"upstream_request_finished",
+		"endpoint=" + server.URL + "/v1/images/generations",
+		"status=502",
+		"request_id=req-failed-123",
+		"error_code=upstream_error",
+		"elapsed_ms=",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("logs %q missing %q", output, want)
+		}
+	}
+	if strings.Contains(output, apiKey) {
+		t.Fatalf("logs leaked API key: %q", output)
+	}
+	if strings.Contains(output, prompt) {
+		t.Fatalf("logs leaked prompt: %q", output)
 	}
 }
 

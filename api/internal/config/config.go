@@ -45,7 +45,7 @@ func Load() (Config, error) {
 		},
 	}
 
-	timeoutSeconds := getenvInt("OPENAI_REQUEST_TIMEOUT_SECONDS", 120)
+	timeoutSeconds := getenvInt("OPENAI_REQUEST_TIMEOUT_SECONDS", 600)
 	cfg.OpenAIRequestTimeout = time.Duration(timeoutSeconds) * time.Second
 
 	if raw := os.Getenv("IMAGE_SIZE_PRESETS"); raw != "" {
