@@ -136,10 +136,6 @@ func (s Service) Register(ctx context.Context, username, password, inviteCode st
 }
 
 func (s Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
-	if err := ValidateNewPassword(newPassword); err != nil {
-		return err
-	}
-
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
@@ -147,6 +143,32 @@ func (s Service) ChangePassword(ctx context.Context, userID, currentPassword, ne
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
+
+	if err := s.ChangePasswordTx(ctx, tx, userID, currentPassword, newPassword); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s Service) ResetPassword(ctx context.Context, userID, newPassword string) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if err := s.ResetPasswordTx(ctx, tx, userID, newPassword); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s Service) ChangePasswordTx(ctx context.Context, tx pgx.Tx, userID, currentPassword, newPassword string) error {
+	if err := ValidateNewPassword(newPassword); err != nil {
+		return err
+	}
 
 	var passwordHash string
 	if err := tx.QueryRow(ctx, `
@@ -165,31 +187,23 @@ func (s Service) ChangePassword(ctx context.Context, userID, currentPassword, ne
 		return ErrInvalidCredentials
 	}
 
-	passwordHash, err = hashPassword(newPassword)
-	if err != nil {
-		return err
-	}
-	tag, err := tx.Exec(ctx, `
-		UPDATE users
-		SET password_hash = $2, updated_at = now()
-		WHERE id = $1::uuid
-	`, userID, passwordHash)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
-	}
-	return tx.Commit(ctx)
-}
-
-func (s Service) ResetPassword(ctx context.Context, userID, newPassword string) error {
 	passwordHash, err := hashPassword(newPassword)
 	if err != nil {
 		return err
 	}
+	return updatePasswordHash(ctx, tx, userID, passwordHash)
+}
 
-	tag, err := s.DB.Exec(ctx, `
+func (s Service) ResetPasswordTx(ctx context.Context, tx pgx.Tx, userID, newPassword string) error {
+	passwordHash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	return updatePasswordHash(ctx, tx, userID, passwordHash)
+}
+
+func updatePasswordHash(ctx context.Context, tx pgx.Tx, userID, passwordHash string) error {
+	tag, err := tx.Exec(ctx, `
 		UPDATE users
 		SET password_hash = $2, updated_at = now()
 		WHERE id = $1::uuid

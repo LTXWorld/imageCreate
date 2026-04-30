@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -381,6 +382,28 @@ func TestAdminChangeOwnPasswordRejectsWrongCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestAdminChangeOwnPasswordRollsBackWhenAuditFails(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUserWithPassword(t, ctx, db, "atomic-change-password-admin", models.RoleAdmin, 0, "old-password")
+	failAuditActionForTest(t, ctx, db, "change_own_password")
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/password", `{"current_password":"old-password","new_password":"new-password"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	var passwordHash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, adminID).Scan(&passwordHash); err != nil {
+		t.Fatalf("query password hash: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("old-password")); err != nil {
+		t.Fatalf("old password no longer verifies: %v", err)
+	}
+}
+
 func TestAdminCanResetUserPassword(t *testing.T) {
 	ctx, db, handler := setupAdminHandlerTest(t)
 	adminID := insertAdminTestUserWithPassword(t, ctx, db, "reset-password-admin", models.RoleAdmin, 0, "admin-password")
@@ -416,6 +439,29 @@ func TestAdminCanResetUserPassword(t *testing.T) {
 	}
 	if strings.Contains(metadata, "new-password") {
 		t.Fatalf("audit metadata contains new password: %s", metadata)
+	}
+}
+
+func TestAdminResetUserPasswordRollsBackWhenAuditFails(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUserWithPassword(t, ctx, db, "atomic-reset-password-admin", models.RoleAdmin, 0, "admin-password")
+	userID := insertAdminTestUserWithPassword(t, ctx, db, "atomic-reset-password-user", models.RoleUser, 0, "old-password")
+	failAuditActionForTest(t, ctx, db, "reset_user_password")
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/password", `{"new_password":"new-password"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	var passwordHash string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&passwordHash); err != nil {
+		t.Fatalf("query password hash: %v", err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("old-password")); err != nil {
+		t.Fatalf("old password no longer verifies: %v", err)
 	}
 }
 
@@ -468,6 +514,39 @@ func insertAdminTestUser(t *testing.T, ctx context.Context, db *pgxpool.Pool, us
 		t.Fatalf("insert user: %v", err)
 	}
 	return userID
+}
+
+func failAuditActionForTest(t *testing.T, ctx context.Context, db *pgxpool.Pool, action string) {
+	t.Helper()
+
+	actionLiteral := strings.ReplaceAll(action, `'`, `''`)
+	if _, err := db.Exec(ctx, fmt.Sprintf(`
+		CREATE OR REPLACE FUNCTION fail_password_audit_for_test()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			IF NEW.action = '%s' THEN
+				RAISE EXCEPTION 'forced audit failure';
+			END IF;
+			RETURN NEW;
+		END;
+		$$;
+	`, actionLiteral)); err != nil {
+		t.Fatalf("create audit failure function: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		CREATE TRIGGER fail_password_audit_for_test
+		BEFORE INSERT ON audit_logs
+		FOR EACH ROW
+		EXECUTE FUNCTION fail_password_audit_for_test();
+	`); err != nil {
+		t.Fatalf("create audit failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(context.Background(), `DROP TRIGGER IF EXISTS fail_password_audit_for_test ON audit_logs`)
+		_, _ = db.Exec(context.Background(), `DROP FUNCTION IF EXISTS fail_password_audit_for_test()`)
+	})
 }
 
 func insertAdminTestUserWithPassword(t *testing.T, ctx context.Context, db *pgxpool.Pool, username, role string, credits int, password string) string {

@@ -81,11 +81,6 @@ func (h Handlers) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := (auth.Service{DB: h.DB}).ChangePassword(r.Context(), actor.ID, req.CurrentPassword, req.NewPassword); err != nil {
-		writePasswordError(w, err)
-		return
-	}
-
 	tx, err := h.DB.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
@@ -93,6 +88,10 @@ func (h Handlers) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
+	if err := (auth.Service{DB: h.DB}).ChangePasswordTx(r.Context(), tx, actor.ID, req.CurrentPassword, req.NewPassword); err != nil {
+		writePasswordError(w, err)
+		return
+	}
 	if err := insertAuditLog(r.Context(), tx, actor.ID, actor.ID, "change_own_password", map[string]any{"username": actor.Username}); err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
 		return
@@ -125,17 +124,6 @@ func (h Handlers) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := findUserSummary(r.Context(), h.DB, userID)
-	if err != nil {
-		writePasswordError(w, err)
-		return
-	}
-
-	if err := (auth.Service{DB: h.DB}).ResetPassword(r.Context(), userID, req.NewPassword); err != nil {
-		writePasswordError(w, err)
-		return
-	}
-
 	tx, err := h.DB.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
@@ -143,6 +131,15 @@ func (h Handlers) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
+	target, err := findUserSummaryTx(r.Context(), tx, userID)
+	if err != nil {
+		writePasswordError(w, err)
+		return
+	}
+	if err := (auth.Service{DB: h.DB}).ResetPasswordTx(r.Context(), tx, userID, req.NewPassword); err != nil {
+		writePasswordError(w, err)
+		return
+	}
 	if err := insertAuditLog(r.Context(), tx, actor.ID, userID, "reset_user_password", map[string]any{"username": target.Username}); err != nil {
 		writeError(w, http.StatusInternalServerError, "服务器错误")
 		return
@@ -530,8 +527,20 @@ func adjustCredits(ctx context.Context, tx pgx.Tx, userID string, amount int, re
 }
 
 func findUserSummary(ctx context.Context, db *pgxpool.Pool, userID string) (userSummary, error) {
+	return scanUserSummary(ctx, db, userID)
+}
+
+func findUserSummaryTx(ctx context.Context, tx pgx.Tx, userID string) (userSummary, error) {
+	return scanUserSummary(ctx, tx, userID)
+}
+
+type userSummaryQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func scanUserSummary(ctx context.Context, q userSummaryQuerier, userID string) (userSummary, error) {
 	var user userSummary
-	err := db.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT id::text, username
 		FROM users
 		WHERE id = $1::uuid
