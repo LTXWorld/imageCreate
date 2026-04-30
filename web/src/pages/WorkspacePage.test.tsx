@@ -131,4 +131,30 @@ describe("WorkspacePage", () => {
     expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
     expect(screen.queryByText("upstream internal details")).not.toBeInTheDocument();
   });
+
+  test("shows sanitized failure guidance for known safe error codes", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-4",
+          prompt: "海边",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "failed",
+          error_code: "content_rejected",
+          message: "提示词可能包含不支持生成的内容，请调整描述后重试。",
+          created_at: "2026-04-30T08:00:00Z",
+          completed_at: "2026-04-30T08:01:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "海边");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
+    expect(screen.getByText("提示词可能包含不支持生成的内容，请调整描述后重试。")).toBeInTheDocument();
+  });
 });

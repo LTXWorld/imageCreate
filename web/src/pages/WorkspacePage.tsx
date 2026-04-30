@@ -9,6 +9,7 @@ import {
 
 const ratios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const activeStatuses = new Set<GenerationTask["status"]>(["queued", "running"]);
+const safeFailureCodes = new Set(["content_rejected", "rate_limited", "timeout", "upstream_error"]);
 
 type WorkspacePageProps = {
   user: User;
@@ -24,6 +25,12 @@ function statusText(status: GenerationTask["status"]) {
   if (status === "succeeded") return "已完成";
   if (status === "failed") return "生成失败";
   return "已取消";
+}
+
+function safeFailureDetail(task: GenerationTask) {
+  return task.errorCode && task.message && safeFailureCodes.has(task.errorCode)
+    ? task.message
+    : "";
 }
 
 export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
@@ -70,6 +77,7 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
   }
 
   const disabled = submitting || isActiveTask(currentTask);
+  const failureDetail = currentTask ? safeFailureDetail(currentTask) : "";
 
   return (
     <section className="workspace-page" aria-labelledby="workspace-title">
@@ -154,9 +162,12 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
 
               {isActiveTask(currentTask) ? <p className="muted-text">生成中</p> : null}
               {currentTask.status === "failed" ? (
-                <p className="form-error" role="alert">
-                  生成失败，已退回 1 点，可调整提示词后重试。
-                </p>
+                <>
+                  <p className="form-error" role="alert">
+                    生成失败，已退回 1 点，可调整提示词后重试。
+                  </p>
+                  {failureDetail ? <p className="muted-text">{failureDetail}</p> : null}
+                </>
               ) : null}
               {currentTask.status === "succeeded" && currentTask.imageUrl ? (
                 <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
