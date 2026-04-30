@@ -33,7 +33,7 @@
 - Modify: `api/internal/auth/service.go`
 - Modify: `api/internal/auth/service_test.go`
 
-- [ ] **Step 1: Write failing tests for password validation and service password updates**
+- [x] **Step 1: Write failing tests for password validation and service password updates**
 
 Add these tests to `api/internal/auth/service_test.go` after `TestLoginRejectsDisabledUser`:
 
@@ -141,7 +141,7 @@ func TestResetPasswordUpdatesTargetPassword(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -151,7 +151,7 @@ cd api && go test ./internal/auth
 
 Expected: FAIL with undefined names such as `ValidateNewPassword`, `ErrPasswordTooShort`, `ChangePassword`, and `ResetPassword`.
 
-- [ ] **Step 3: Implement password helpers and service methods**
+- [x] **Step 3: Implement password helpers and service methods**
 
 In `api/internal/auth/service.go`, update the error block and add the constant:
 
@@ -259,7 +259,7 @@ func (s Service) ResetPassword(ctx context.Context, userID, newPassword string) 
 }
 ```
 
-- [ ] **Step 4: Run auth tests to verify they pass**
+- [x] **Step 4: Run auth tests to verify they pass**
 
 Run:
 
@@ -269,7 +269,7 @@ cd api && go test ./internal/auth
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -287,7 +287,7 @@ git commit -m "feat: add password update service"
 - Modify: `api/internal/admin/handlers_test.go`
 - Modify: `api/internal/app/routes.go`
 
-- [ ] **Step 1: Write failing handler tests**
+- [x] **Step 1: Write failing handler tests**
 
 In `api/internal/admin/handlers_test.go`, add `bcrypt` to the imports:
 
@@ -431,7 +431,7 @@ func insertAdminTestUserWithPassword(t *testing.T, ctx context.Context, db *pgxp
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -441,7 +441,7 @@ cd api && go test ./internal/admin
 
 Expected: FAIL with undefined handler methods `ChangeOwnPassword` and `ResetUserPassword`.
 
-- [ ] **Step 3: Implement handlers**
+- [x] **Step 3: Implement handlers**
 
 In `api/internal/admin/handlers.go`, add these methods after `AdjustCredits`:
 
@@ -588,7 +588,7 @@ In `api/internal/app/routes.go`, register:
 		r.Post("/users/{id}/password", a.adminHandlers.ResetUserPassword)
 ```
 
-- [ ] **Step 4: Run admin and app package tests**
+- [x] **Step 4: Run admin and app package tests**
 
 Run:
 
@@ -598,7 +598,7 @@ cd api && go test ./internal/admin ./internal/app
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -615,7 +615,7 @@ git commit -m "feat: add admin password endpoints"
 - Modify: `web/src/pages/AdminPage.tsx`
 - Modify: `web/src/pages/AdminPage.test.tsx`
 
-- [ ] **Step 1: Write failing frontend tests**
+- [x] **Step 1: Write failing frontend tests**
 
 Update `mockAdminFetch` in `web/src/pages/AdminPage.test.tsx` with these branches:
 
@@ -687,7 +687,7 @@ Add these tests before `does not render image links in audit task table`:
   });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -697,7 +697,7 @@ cd web && npm test -- AdminPage.test.tsx --run
 
 Expected: FAIL because the “安全” tab and reset-password controls do not exist.
 
-- [ ] **Step 3: Implement AdminPage state and handlers**
+- [x] **Step 3: Implement AdminPage state and handlers**
 
 In `web/src/pages/AdminPage.tsx`, change the `AdminTab` type and `tabs` array:
 
@@ -895,7 +895,7 @@ Add the security tab section before the audit section:
       ) : null}
 ```
 
-- [ ] **Step 4: Run AdminPage tests**
+- [x] **Step 4: Run AdminPage tests**
 
 Run:
 
@@ -905,7 +905,7 @@ cd web && npm test -- AdminPage.test.tsx --run
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -925,7 +925,7 @@ git commit -m "feat: add admin password controls"
 - Modify: `web/src/pages/HistoryPage.test.tsx`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write failing UI copy tests**
+- [x] **Step 1: Write failing UI copy tests**
 
 In `web/src/pages/WorkspacePage.test.tsx`, add this test before `creates a generation with prompt and ratio`:
 
@@ -972,7 +972,7 @@ In `web/src/pages/HistoryPage.test.tsx`, add this assertion after `render(<Histo
     expect(screen.getByText("这里只显示最近 30 天的生成记录。请及时下载需要长期保存的图片。")).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -982,7 +982,7 @@ cd web && npm test -- WorkspacePage.test.tsx HistoryPage.test.tsx --run
 
 Expected: FAIL because the new guidance copy is not rendered and failure details are still shown.
 
-- [ ] **Step 3: Implement copy and failure display**
+- [x] **Step 3: Implement copy and failure display**
 
 In `web/src/pages/WorkspacePage.tsx`, add this paragraph after the balance row:
 
@@ -1018,7 +1018,7 @@ In `README.md`, add this section after the opening description:
 - 生成图片和历史记录面向用户展示最近 30 天，请及时下载需要长期保存的图片。
 ```
 
-- [ ] **Step 4: Run UI copy tests**
+- [x] **Step 4: Run UI copy tests**
 
 Run:
 
@@ -1028,7 +1028,7 @@ cd web && npm test -- WorkspacePage.test.tsx HistoryPage.test.tsx --run
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -1044,7 +1044,7 @@ git commit -m "feat: add real use guidance copy"
 **Files:**
 - Verify all modified files.
 
-- [ ] **Step 1: Run full Go test suite**
+- [x] **Step 1: Run full Go test suite**
 
 Run:
 
@@ -1054,7 +1054,7 @@ cd api && go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full web test suite**
+- [x] **Step 2: Run full web test suite**
 
 Run:
 
@@ -1064,7 +1064,7 @@ cd web && npm test -- --run
 
 Expected: PASS.
 
-- [ ] **Step 3: Build frontend**
+- [x] **Step 3: Build frontend**
 
 Run:
 
@@ -1074,7 +1074,7 @@ cd web && npm run build
 
 Expected: PASS with Vite production build output.
 
-- [ ] **Step 4: Validate Docker Compose config**
+- [x] **Step 4: Validate Docker Compose config**
 
 Run:
 
@@ -1084,7 +1084,7 @@ docker compose config
 
 Expected: PASS and prints the resolved Compose configuration.
 
-- [ ] **Step 5: Inspect final diff**
+- [x] **Step 5: Inspect final diff**
 
 Run:
 
