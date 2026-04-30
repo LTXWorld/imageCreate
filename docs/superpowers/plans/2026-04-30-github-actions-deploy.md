@@ -4,7 +4,7 @@
 
 **Goal:** Add CI and production deployment workflows for `img.bfsmlt.top`.
 
-**Architecture:** GitHub Actions runs the existing Go, web, and Docker Compose verification on every push and pull request. A separate deploy workflow waits for CI on `master`, then SSHes to the VPS, checks out or updates the repository, and runs Docker Compose using the VPS-local `.env`.
+**Architecture:** GitHub Actions runs the existing Go, web, and Docker Compose verification on every push and pull request. A deploy job in the same workflow waits for verification to pass, then SSHes to the VPS, uploads the verified revision, and runs Docker Compose using the VPS-local `.env`.
 
 **Tech Stack:** GitHub Actions, Go 1.22, Node 22, npm, Docker Compose, SSH, Caddy.
 
@@ -19,14 +19,14 @@
 
 Run Go tests from `api`, install web dependencies with `npm ci`, run Vitest and Vite build, then validate Compose with `docker compose config`.
 
-### Task 2: Add Deploy Workflow
+### Task 2: Add Deploy Job
 
 **Files:**
-- Create: `.github/workflows/deploy.yml`
+- Modify: `.github/workflows/ci.yml`
 
 - [x] **Step 1: Deploy only after successful CI on `master`**
 
-Use `workflow_run` so deployment is gated by CI success. Use repository secrets for SSH target and health check URL.
+Use a `deploy` job with `needs: verify` so deployment is gated by CI success. Use repository secrets for SSH target and health check URL.
 
 ### Task 3: Document Setup
 

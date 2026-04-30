@@ -39,10 +39,10 @@ IMAGE_RETENTION_DAYS=30
 
 ## GitHub Actions Deploy
 
-The repository includes two workflows:
+The repository includes a `CI` workflow:
 
-- `CI`: runs Go tests, web tests, the web production build, and `docker compose config`.
-- `Deploy`: after a successful `CI` run on `master`, packages the verified revision, copies it to the VPS over SSH, runs `docker compose up -d --build`, and checks `/healthz`.
+- `verify`: runs Go tests, web tests, the web production build, and `docker compose config`.
+- `deploy`: after `verify` succeeds, packages the verified revision, copies it to the VPS over SSH, runs `docker compose up -d --build`, and checks `/healthz`.
 
 Add these GitHub repository secrets before relying on automated deployment:
 
@@ -60,7 +60,7 @@ Add this GitHub repository variable to enable automatic deploys after `master` p
 ENABLE_PRODUCTION_DEPLOY=true
 ```
 
-The deploy workflow can also be started manually from the GitHub Actions tab. The VPS must have Docker and Docker Compose installed. The `VPS_USER` account must be allowed to write to `VPS_APP_DIR` and run Docker commands.
+Deployment can also be started manually from the GitHub Actions tab by running the `CI` workflow. The VPS must have Docker and Docker Compose installed. The `VPS_USER` account must be allowed to write to `VPS_APP_DIR` and run Docker commands.
 
 ## Verification
 
