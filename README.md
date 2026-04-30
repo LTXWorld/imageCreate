@@ -11,13 +11,56 @@
 
 ## Production
 
-Point the selected subdomain to the VPS IP, copy `.env.example` to `.env`, set `DOMAIN`, then run:
+Point `img.bfsmlt.top` to the VPS IP, copy `.env.example` to `.env`, set `DOMAIN=img.bfsmlt.top`, then run:
 
 ```bash
 docker compose up -d --build
 ```
 
 Caddy listens on ports `80` and `443`, serves the React web app, and proxies `/api/*` plus `/healthz` to the Go API. Postgres data, Caddy state, and generated images are stored in Docker volumes.
+
+For the first production setup, create `.env` on the VPS and keep it out of git:
+
+```bash
+APP_BASE_URL=https://img.bfsmlt.top
+DOMAIN=img.bfsmlt.top
+ADMIN_USERNAME=<admin-user>
+ADMIN_PASSWORD=<strong-admin-password>
+DATABASE_URL=postgres://postgres:postgres@postgres:5432/imagecreate?sslmode=disable
+SESSION_SECRET=<long-random-secret>
+OPENAI_BASE_URL=<openai-compatible-base-url>
+OPENAI_API_KEY=<openai-compatible-api-key>
+OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_REQUEST_TIMEOUT_SECONDS=120
+IMAGE_SIZE_PRESETS={"1:1":"1024x1024","3:4":"768x1024","4:3":"1024x768","9:16":"720x1280","16:9":"1280x720"}
+IMAGE_STORAGE_DIR=/data/images
+IMAGE_RETENTION_DAYS=30
+```
+
+## GitHub Actions Deploy
+
+The repository includes two workflows:
+
+- `CI`: runs Go tests, web tests, the web production build, and `docker compose config`.
+- `Deploy`: after a successful `CI` run on `master`, packages the verified revision, copies it to the VPS over SSH, runs `docker compose up -d --build`, and checks `/healthz`.
+
+Add these GitHub repository secrets before relying on automated deployment:
+
+```text
+VPS_HOST=154.64.230.197
+VPS_USER=<ssh-user>
+VPS_SSH_KEY=<private-key-with-access-to-the-vps>
+VPS_APP_DIR=/opt/imageCreate
+APP_HEALTHCHECK_URL=https://img.bfsmlt.top/healthz
+```
+
+Add this GitHub repository variable to enable automatic deploys after `master` passes CI:
+
+```text
+ENABLE_PRODUCTION_DEPLOY=true
+```
+
+The deploy workflow can also be started manually from the GitHub Actions tab. The VPS must have Docker and Docker Compose installed. The `VPS_USER` account must be allowed to write to `VPS_APP_DIR` and run Docker commands.
 
 ## Verification
 
