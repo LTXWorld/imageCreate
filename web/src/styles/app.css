@@ -297,11 +297,19 @@ button:disabled {
   border: 1px solid #d4c7b4;
   color: #514c43;
   background: #fbfaf7;
+  text-decoration: none;
 }
 
 .secondary-button:hover {
   border-color: #bcae9c;
   color: #25231f;
+}
+
+.download-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
 }
 
 .workspace-page,
@@ -546,6 +554,17 @@ button:disabled {
   background: #f8f6f0;
 }
 
+.history-actions {
+  display: grid;
+  grid-column: 3;
+  gap: 10px;
+  justify-items: stretch;
+}
+
+.history-actions .download-button {
+  width: 100%;
+}
+
 .delete-button {
   min-width: 78px;
 }
@@ -722,5 +741,10 @@ button:disabled {
     height: auto;
     max-height: 260px;
     object-fit: contain;
+  }
+
+  .history-actions {
+    grid-column: auto;
+    justify-items: stretch;
   }
 }

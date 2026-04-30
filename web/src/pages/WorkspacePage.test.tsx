@@ -170,4 +170,30 @@ describe("WorkspacePage", () => {
     expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
     expect(screen.getByText("提示词可能包含不支持生成的内容，请调整描述后重试。")).toBeInTheDocument();
   });
+
+  test("shows a download link after generation succeeds", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-5",
+          prompt: "星空城堡",
+          ratio: "16:9",
+          size: "1280x720",
+          status: "succeeded",
+          image_url: "/api/generations/task-5/image",
+          created_at: "2026-04-30T08:00:00Z",
+          completed_at: "2026-04-30T08:01:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "星空城堡");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    const downloadLink = await screen.findByRole("link", { name: "下载图片" });
+    expect(downloadLink).toHaveAttribute("href", "/api/generations/task-5/image");
+    expect(downloadLink).toHaveAttribute("download", "imagecreate-task-5-16-9.png");
+  });
 });

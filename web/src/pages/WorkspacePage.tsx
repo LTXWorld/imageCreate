@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import {
   api,
+  generationImageFilename,
   normalizeGenerationTask,
   type GenerationTask,
   type User,
@@ -171,7 +172,16 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
                 </>
               ) : null}
               {currentTask.status === "succeeded" && currentTask.imageUrl ? (
-                <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
+                <>
+                  <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
+                  <a
+                    className="secondary-button download-button"
+                    download={generationImageFilename(currentTask)}
+                    href={currentTask.imageUrl}
+                  >
+                    下载图片
+                  </a>
+                </>
               ) : null}
             </div>
           ) : (

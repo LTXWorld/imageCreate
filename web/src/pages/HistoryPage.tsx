@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api, normalizeGenerationList, type GenerationTask } from "../api/client";
+import { api, generationImageFilename, normalizeGenerationList, type GenerationTask } from "../api/client";
 
 type HistoryPageProps = {
   onWorkspaceClick?: () => void;
@@ -106,14 +106,25 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
               <img className="history-preview" src={task.imageUrl} alt={task.prompt} />
             ) : null}
 
-            <button
-              className="secondary-button delete-button"
-              disabled={deletingId === task.id}
-              onClick={() => void handleDelete(task.id)}
-              type="button"
-            >
-              {deletingId === task.id ? "删除中..." : "删除"}
-            </button>
+            <div className="history-actions">
+              {task.status === "succeeded" && task.imageUrl ? (
+                <a
+                  className="secondary-button download-button"
+                  download={generationImageFilename(task)}
+                  href={task.imageUrl}
+                >
+                  下载图片
+                </a>
+              ) : null}
+              <button
+                className="secondary-button delete-button"
+                disabled={deletingId === task.id}
+                onClick={() => void handleDelete(task.id)}
+                type="button"
+              >
+                {deletingId === task.id ? "删除中..." : "删除"}
+              </button>
+            </div>
           </article>
         ))}
       </div>

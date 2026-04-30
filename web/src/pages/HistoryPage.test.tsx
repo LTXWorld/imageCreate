@@ -27,6 +27,7 @@ describe("HistoryPage", () => {
             ratio: "16:9",
             size: "1024x576",
             status: "succeeded",
+            image_url: "/api/generations/task-1/image",
             created_at: "2026-04-30T08:00:00Z",
             completed_at: "2026-04-30T08:01:00Z",
           },
@@ -52,6 +53,9 @@ describe("HistoryPage", () => {
     });
 
     expect(screen.getByText("我的港口")).toBeInTheDocument();
+    const downloadLink = screen.getByRole("link", { name: "下载图片" });
+    expect(downloadLink).toHaveAttribute("href", "/api/generations/task-1/image");
+    expect(downloadLink).toHaveAttribute("download", "imagecreate-task-1-16-9.png");
     // The frontend can only render tasks returned by the user-scoped API.
     expect(screen.queryByText("其他用户的图片")).not.toBeInTheDocument();
   });

@@ -220,6 +220,11 @@ export function normalizeGenerationList(body: unknown): GenerationTask[] {
     : [];
 }
 
+export function generationImageFilename(task: Pick<GenerationTask, "id" | "ratio">): string {
+  const safeRatio = task.ratio.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `imagecreate-${task.id}-${safeRatio || "image"}.png`;
+}
+
 export function normalizeAdminUsers(body: unknown): AdminUser[] {
   const source = typeof body === "object" && body !== null && "users" in body
     ? (body as { users: unknown }).users
