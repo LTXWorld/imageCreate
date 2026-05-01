@@ -352,6 +352,59 @@ button:disabled {
   font-size: 14px;
 }
 
+.private-support {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #d7d8c8;
+  border-radius: 8px;
+  background: #fbfcf3;
+}
+
+.private-support h3 {
+  margin: 0;
+  color: #25231f;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.support-copy {
+  margin: 7px 0 0;
+  color: #6a6f4f;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.support-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.support-list div {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #e0e1d1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.support-list dt {
+  color: #6f7650;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.support-list dd {
+  margin: 0;
+  color: #25231f;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .ratio-control {
   display: grid;
   gap: 8px;

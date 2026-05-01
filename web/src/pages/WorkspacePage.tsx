@@ -9,6 +9,10 @@ import {
 } from "../api/client";
 
 const ratios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+const privateSupportConfig = {
+  qq: import.meta.env.VITE_PRIVATE_SUPPORT_QQ?.trim() ?? "",
+  wechat: import.meta.env.VITE_PRIVATE_SUPPORT_WECHAT?.trim() ?? "",
+};
 const activeStatuses = new Set<GenerationTask["status"]>(["queued", "running"]);
 const safeFailureCodes = new Set(["content_rejected", "rate_limited", "timeout", "upstream_error"]);
 const taskPollingIntervalMS = 5000;
@@ -114,6 +118,31 @@ function GenerationProgress({ task, now }: { task: GenerationTask; now: number }
       </div>
       <p className="muted-text">{progress.helperText}</p>
     </div>
+  );
+}
+
+function PrivateSupportCard() {
+  const hasQQ = privateSupportConfig.qq.length > 0;
+  const hasWechat = privateSupportConfig.wechat.length > 0;
+
+  return (
+    <section className="private-support" aria-label="专属服务">
+      <div>
+        <p className="eyebrow">专属服务</p>
+        <h3>加 QQ 或微信获取帮助</h3>
+        <p className="support-copy">额度咨询、生成失败处理、提示词优化都可以直接联系。</p>
+      </div>
+      <dl className="support-list">
+        <div>
+          <dt>QQ</dt>
+          <dd>{hasQQ ? privateSupportConfig.qq : "待配置"}</dd>
+        </div>
+        <div>
+          <dt>微信</dt>
+          <dd>{hasWechat ? privateSupportConfig.wechat : "待配置"}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -235,6 +264,8 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
           <button className="primary-button wide-button" disabled={disabled} type="submit">
             {submitting ? "提交中..." : "生成"}
           </button>
+
+          <PrivateSupportCard />
         </form>
 
         <section className="current-task panel" aria-label="当前任务">

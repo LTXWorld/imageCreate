@@ -45,6 +45,15 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("付费额度 3")).toBeInTheDocument();
   });
 
+  test("shows private support contact guidance", () => {
+    render(<WorkspacePage user={user} />);
+
+    expect(screen.getByRole("region", { name: "专属服务" })).toBeInTheDocument();
+    expect(screen.getByText("加 QQ 或微信获取帮助")).toBeInTheDocument();
+    expect(screen.getByText("QQ")).toBeInTheDocument();
+    expect(screen.getByText("微信")).toBeInTheDocument();
+  });
+
   test("creates a generation with prompt and ratio", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

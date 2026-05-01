@@ -44,6 +44,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      args:
+        VITE_PRIVATE_SUPPORT_QQ: ${VITE_PRIVATE_SUPPORT_QQ:-1092197673}
+        VITE_PRIVATE_SUPPORT_WECHAT: ${VITE_PRIVATE_SUPPORT_WECHAT:-18028270324}
     restart: unless-stopped
     depends_on:
       - api

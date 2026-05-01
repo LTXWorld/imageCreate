@@ -122,6 +122,18 @@ jobs:
             printf '\nOPENAI_REQUEST_TIMEOUT_SECONDS=600\n' >> .env
           fi
 
+          if grep -q '^VITE_PRIVATE_SUPPORT_QQ=' .env; then
+            sed -i 's/^VITE_PRIVATE_SUPPORT_QQ=.*/VITE_PRIVATE_SUPPORT_QQ=1092197673/' .env
+          else
+            printf '\nVITE_PRIVATE_SUPPORT_QQ=1092197673\n' >> .env
+          fi
+
+          if grep -q '^VITE_PRIVATE_SUPPORT_WECHAT=' .env; then
+            sed -i 's/^VITE_PRIVATE_SUPPORT_WECHAT=.*/VITE_PRIVATE_SUPPORT_WECHAT=18028270324/' .env
+          else
+            printf '\nVITE_PRIVATE_SUPPORT_WECHAT=18028270324\n' >> .env
+          fi
+
           docker compose up -d --build
           docker compose up -d --force-recreate caddy
           docker compose ps
