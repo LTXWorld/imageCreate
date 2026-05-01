@@ -307,7 +307,9 @@ export function AdminPage({ user }: AdminPageProps) {
                   <th>用户名</th>
                   <th>角色</th>
                   <th>状态</th>
-                  <th>余额</th>
+                  <th>今日免费</th>
+                  <th>付费额度</th>
+                  <th>合计</th>
                   <th>注册时间</th>
                   <th>操作</th>
                 </tr>
@@ -319,7 +321,9 @@ export function AdminPage({ user }: AdminPageProps) {
                       <td>{item.username}</td>
                       <td>{item.role}</td>
                       <td>{item.status}</td>
-                      <td>{item.creditBalance} 点</td>
+                      <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
+                      <td>{item.paidCreditBalance}</td>
+                      <td>{item.creditBalance}</td>
                       <td>{formatTime(item.createdAt)}</td>
                       <td>
                         <button
@@ -346,7 +350,7 @@ export function AdminPage({ user }: AdminPageProps) {
                     </tr>
                     {resetPasswordUserId === item.id ? (
                       <tr>
-                        <td colSpan={6}>
+                        <td colSpan={8}>
                           <form
                             className="inline-admin-form"
                             onSubmit={(event) => void handleResetPasswordSubmit(event, item)}

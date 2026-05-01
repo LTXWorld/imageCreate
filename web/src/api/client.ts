@@ -4,6 +4,9 @@ export type User = {
   role: "user" | "admin";
   status: "active" | "disabled";
   creditBalance: number;
+  dailyFreeCreditLimit: number;
+  dailyFreeCreditBalance: number;
+  paidCreditBalance: number;
 };
 
 export type GenerationTask = {
@@ -58,8 +61,19 @@ export type AdminGenerationTask = {
   completedAt?: string;
 };
 
-type ApiUser = User & {
+type ApiUser = {
+  id: string;
+  username: string;
+  role: User["role"];
+  status: User["status"];
+  creditBalance?: number;
   credit_balance?: number;
+  daily_free_credit_limit?: number;
+  dailyFreeCreditLimit?: number;
+  daily_free_credit_balance?: number;
+  dailyFreeCreditBalance?: number;
+  paid_credit_balance?: number;
+  paidCreditBalance?: number;
   created_at?: string;
   createdAt?: string;
   updated_at?: string;
@@ -161,12 +175,19 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function normalizeUser(user: ApiUser): User {
+  const dailyFreeCreditLimit = user.dailyFreeCreditLimit ?? user.daily_free_credit_limit ?? 0;
+  const dailyFreeCreditBalance = user.dailyFreeCreditBalance ?? user.daily_free_credit_balance ?? 0;
+  const paidCreditBalance = user.paidCreditBalance ?? user.paid_credit_balance ?? 0;
+
   return {
     id: user.id,
     username: user.username,
     role: user.role,
     status: user.status,
-    creditBalance: user.creditBalance ?? user.credit_balance ?? 0,
+    creditBalance: user.creditBalance ?? user.credit_balance ?? dailyFreeCreditBalance + paidCreditBalance,
+    dailyFreeCreditLimit,
+    dailyFreeCreditBalance,
+    paidCreditBalance,
   };
 }
 

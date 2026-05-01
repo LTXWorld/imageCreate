@@ -11,6 +11,9 @@ const adminUser: User = {
   role: "admin",
   status: "active",
   creditBalance: 99,
+  dailyFreeCreditLimit: 5,
+  dailyFreeCreditBalance: 5,
+  paidCreditBalance: 94,
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -34,6 +37,9 @@ function mockAdminFetch() {
             role: "user",
             status: "active",
             credit_balance: 8,
+            daily_free_credit_limit: 5,
+            daily_free_credit_balance: 3,
+            paid_credit_balance: 5,
             created_at: "2026-04-30T08:00:00Z",
             updated_at: "2026-04-30T08:00:00Z",
           },
@@ -93,6 +99,9 @@ function mockAdminFetch() {
           role: "user",
           status: "active",
           credit_balance: 11,
+          daily_free_credit_limit: 5,
+          daily_free_credit_balance: 5,
+          paid_credit_balance: 6,
           created_at: "2026-04-30T08:00:00Z",
           updated_at: "2026-04-30T09:00:00Z",
         },
@@ -120,7 +129,12 @@ describe("AdminPage", () => {
 
     expect(await screen.findByText("用户管理")).toBeInTheDocument();
     expect(screen.getByText("alice")).toBeInTheDocument();
-    expect(screen.getByText("8 点")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "今日免费" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "付费额度" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "合计" })).toBeInTheDocument();
+    expect(screen.getByText("3/5")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("8")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
   });
 

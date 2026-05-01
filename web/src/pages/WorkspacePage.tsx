@@ -193,6 +193,10 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
             <span>当前余额</span>
             <strong>{user.creditBalance} 点</strong>
           </div>
+          <div className="balance-row">
+            <span>今日免费额度 {user.dailyFreeCreditBalance}/{user.dailyFreeCreditLimit}</span>
+            <span>付费额度 {user.paidCreditBalance}</span>
+          </div>
           <p className="usage-note">
             输入提示词，选择画面比例后开始生成。每次生成 1 张图，扣 1 点；失败会自动退回点数。生成图片保留 30 天。
           </p>

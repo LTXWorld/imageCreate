@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { api } from "./client";
+import { api, normalizeAuthResponse } from "./client";
 
 describe("api", () => {
   afterEach(() => {
@@ -59,5 +59,25 @@ describe("api", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
 
     await expect(api<void>("/api/example", { method: "DELETE" })).resolves.toBeUndefined();
+  });
+
+  test("normalizes split credit wallet fields", () => {
+    const { user } = normalizeAuthResponse({
+      user: {
+        id: "user-1",
+        username: "alice",
+        role: "user",
+        status: "active",
+        credit_balance: 7,
+        daily_free_credit_limit: 5,
+        daily_free_credit_balance: 2,
+        paid_credit_balance: 5,
+      },
+    });
+
+    expect(user.creditBalance).toBe(7);
+    expect(user.dailyFreeCreditLimit).toBe(5);
+    expect(user.dailyFreeCreditBalance).toBe(2);
+    expect(user.paidCreditBalance).toBe(5);
   });
 });

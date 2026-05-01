@@ -11,6 +11,9 @@ const user: User = {
   role: "user",
   status: "active",
   creditBalance: 8,
+  dailyFreeCreditLimit: 5,
+  dailyFreeCreditBalance: 5,
+  paidCreditBalance: 3,
 };
 
 function jsonResponse(body: unknown) {
@@ -31,6 +34,15 @@ describe("WorkspacePage", () => {
   test("shows simple point, refund, and retention guidance", () => {
     render(<WorkspacePage user={user} />);
     expect(screen.getByText("输入提示词，选择画面比例后开始生成。每次生成 1 张图，扣 1 点；失败会自动退回点数。生成图片保留 30 天。")).toBeInTheDocument();
+  });
+
+  test("shows split credit balances", () => {
+    render(<WorkspacePage user={user} />);
+
+    expect(screen.getByText("当前余额")).toBeInTheDocument();
+    expect(screen.getByText("8 点")).toBeInTheDocument();
+    expect(screen.getByText("今日免费额度 5/5")).toBeInTheDocument();
+    expect(screen.getByText("付费额度 3")).toBeInTheDocument();
   });
 
   test("creates a generation with prompt and ratio", async () => {
