@@ -123,9 +123,9 @@ jobs:
           fi
 
           if grep -q '^VITE_PRIVATE_SUPPORT_QQ=' .env; then
-            sed -i 's/^VITE_PRIVATE_SUPPORT_QQ=.*/VITE_PRIVATE_SUPPORT_QQ=1092197673/' .env
+            sed -i 's/^VITE_PRIVATE_SUPPORT_QQ=.*/VITE_PRIVATE_SUPPORT_QQ=3764117425/' .env
           else
-            printf '\nVITE_PRIVATE_SUPPORT_QQ=1092197673\n' >> .env
+            printf '\nVITE_PRIVATE_SUPPORT_QQ=3764117425\n' >> .env
           fi
 
           if grep -q '^VITE_PRIVATE_SUPPORT_WECHAT=' .env; then
