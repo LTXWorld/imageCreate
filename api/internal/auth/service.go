@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	"imagecreate/api/internal/credits"
 	"imagecreate/api/internal/models"
 )
 
@@ -31,11 +32,14 @@ type Service struct {
 }
 
 type User struct {
-	ID            string `json:"id"`
-	Username      string `json:"username"`
-	Role          string `json:"role"`
-	Status        string `json:"status"`
-	CreditBalance int    `json:"credit_balance"`
+	ID                     string `json:"id"`
+	Username               string `json:"username"`
+	Role                   string `json:"role"`
+	Status                 string `json:"status"`
+	CreditBalance          int    `json:"credit_balance"`
+	DailyFreeCreditLimit   int    `json:"daily_free_credit_limit"`
+	DailyFreeCreditBalance int    `json:"daily_free_credit_balance"`
+	PaidCreditBalance      int    `json:"paid_credit_balance"`
 }
 
 func ValidateNewPassword(password string) error {
@@ -54,6 +58,21 @@ func hashPassword(password string) (string, error) {
 		return "", fmt.Errorf("hash password: %w", err)
 	}
 	return string(passwordHash), nil
+}
+
+func scanUser(row pgx.Row) (User, error) {
+	var user User
+	err := row.Scan(
+		&user.ID,
+		&user.Username,
+		&user.Role,
+		&user.Status,
+		&user.CreditBalance,
+		&user.DailyFreeCreditLimit,
+		&user.DailyFreeCreditBalance,
+		&user.PaidCreditBalance,
+	)
+	return user, err
 }
 
 func (s Service) Register(ctx context.Context, username, password, inviteCode string) (User, error) {
@@ -92,18 +111,22 @@ func (s Service) Register(ctx context.Context, username, password, inviteCode st
 		return User{}, ErrInvalidInvite
 	}
 
-	var user User
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO users (username, password_hash, role, status, credit_balance)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id::text, username, role, status, credit_balance
-	`, username, passwordHash, models.RoleUser, models.UserStatusActive, initialCredits).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Role,
-		&user.Status,
-		&user.CreditBalance,
-	); err != nil {
+	user, err := scanUser(tx.QueryRow(ctx, `
+		INSERT INTO users (
+			username,
+			password_hash,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			last_daily_free_credit_refreshed_on
+		)
+		VALUES ($1, $2, $3, $4, $5, $5, $5, 0, CURRENT_DATE)
+		RETURNING id::text, username, role, status, credit_balance, daily_free_credit_limit, daily_free_credit_balance, paid_credit_balance
+	`, username, passwordHash, models.RoleUser, models.UserStatusActive, initialCredits))
+	if err != nil {
 		if isUniqueViolation(err) {
 			return User{}, ErrDuplicateUsername
 		}
@@ -225,7 +248,15 @@ func (s Service) Login(ctx context.Context, username, password string) (User, er
 	var user User
 	var passwordHash string
 	if err := s.DB.QueryRow(ctx, `
-		SELECT id::text, username, password_hash, role, status, credit_balance
+		SELECT id::text,
+			username,
+			password_hash,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance
 		FROM users
 		WHERE username = $1
 	`, username).Scan(
@@ -235,6 +266,9 @@ func (s Service) Login(ctx context.Context, username, password string) (User, er
 		&user.Role,
 		&user.Status,
 		&user.CreditBalance,
+		&user.DailyFreeCreditLimit,
+		&user.DailyFreeCreditBalance,
+		&user.PaidCreditBalance,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return User{}, ErrInvalidCredentials
@@ -249,7 +283,11 @@ func (s Service) Login(ctx context.Context, username, password string) (User, er
 		return User{}, ErrDisabledUser
 	}
 
-	return user, nil
+	creditService := credits.Service{DB: s.DB}
+	if _, err := creditService.RefreshDailyFreeCredits(ctx, user.ID); err != nil {
+		return User{}, err
+	}
+	return s.userByID(ctx, user.ID)
 }
 
 func (s Service) EnsureAdmin(ctx context.Context, username, password string) error {
@@ -263,8 +301,18 @@ func (s Service) EnsureAdmin(ctx context.Context, username, password string) err
 	}
 
 	_, err = s.DB.Exec(ctx, `
-		INSERT INTO users (username, password_hash, role, status, credit_balance)
-		VALUES ($1, $2, $3, $4, 0)
+		INSERT INTO users (
+			username,
+			password_hash,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			last_daily_free_credit_refreshed_on
+		)
+		VALUES ($1, $2, $3, $4, 0, 0, 0, 0, CURRENT_DATE)
 		ON CONFLICT (username) DO NOTHING
 	`, username, passwordHash, models.RoleAdmin, models.UserStatusActive)
 	if err != nil {
@@ -287,18 +335,8 @@ func (s Service) EnsureAdmin(ctx context.Context, username, password string) err
 }
 
 func (s Service) userByID(ctx context.Context, id string) (User, error) {
-	var user User
-	if err := s.DB.QueryRow(ctx, `
-		SELECT id::text, username, role, status, credit_balance
-		FROM users
-		WHERE id = $1
-	`, id).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Role,
-		&user.Status,
-		&user.CreditBalance,
-	); err != nil {
+	user, err := s.scanUserByID(ctx, id)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return User{}, ErrInvalidCredentials
 		}
@@ -307,7 +345,31 @@ func (s Service) userByID(ctx context.Context, id string) (User, error) {
 	if user.Status == models.UserStatusDisabled {
 		return User{}, ErrDisabledUser
 	}
+	if user.Status == models.UserStatusActive {
+		creditService := credits.Service{DB: s.DB}
+		if _, err := creditService.RefreshDailyFreeCredits(ctx, user.ID); err != nil {
+			return User{}, err
+		}
+		user, err = s.scanUserByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return User{}, ErrInvalidCredentials
+			}
+			return User{}, err
+		}
+		if user.Status == models.UserStatusDisabled {
+			return User{}, ErrDisabledUser
+		}
+	}
 	return user, nil
+}
+
+func (s Service) scanUserByID(ctx context.Context, id string) (User, error) {
+	return scanUser(s.DB.QueryRow(ctx, `
+		SELECT id::text, username, role, status, credit_balance, daily_free_credit_limit, daily_free_credit_balance, paid_credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, id))
 }
 
 func isUniqueViolation(err error) bool {

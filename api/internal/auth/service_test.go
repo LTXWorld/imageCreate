@@ -28,6 +28,77 @@ func setupAuthTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	return context.Background(), db
 }
 
+func createInvite(t *testing.T, ctx context.Context, db *pgxpool.Pool, code string, initialCredits int) {
+	t.Helper()
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO invites (code, initial_credits, status)
+		VALUES ($1, $2, 'unused')
+	`, code, initialCredits); err != nil {
+		t.Fatalf("insert invite: %v", err)
+	}
+}
+
+func insertAuthTestUser(t *testing.T, ctx context.Context, db *pgxpool.Pool, username, password, role, status string, credits int) string {
+	t.Helper()
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	var userID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash, role, status, credit_balance)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id::text
+	`, username, string(hash), role, status, credits).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	return userID
+}
+
+func TestRegisterInitializesDailyFreeWallet(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	createInvite(t, ctx, db, "daily-free-register", 6)
+	service := Service{DB: db}
+
+	user, err := service.Register(ctx, "daily-free-user", "secret1", "daily-free-register")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if user.CreditBalance != 6 || user.DailyFreeCreditLimit != 6 || user.DailyFreeCreditBalance != 6 || user.PaidCreditBalance != 0 {
+		t.Fatalf("user wallets total=%d free=%d/%d paid=%d, want total=6 free=6/6 paid=0",
+			user.CreditBalance, user.DailyFreeCreditBalance, user.DailyFreeCreditLimit, user.PaidCreditBalance)
+	}
+}
+
+func TestLoginRefreshesStaleDailyFreeWallet(t *testing.T) {
+	ctx, db := setupAuthTestDB(t)
+	userID := insertAuthTestUser(t, ctx, db, "stale-login", "secret1", models.RoleUser, models.UserStatusActive, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 3,
+			daily_free_credit_balance = 0,
+			paid_credit_balance = 2,
+			credit_balance = 2,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE - 1
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed stale wallet: %v", err)
+	}
+
+	user, err := Service{DB: db}.Login(ctx, "stale-login", "secret1")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if user.CreditBalance != 5 || user.DailyFreeCreditBalance != 3 || user.PaidCreditBalance != 2 {
+		t.Fatalf("wallets total=%d free=%d paid=%d, want 5,3,2", user.CreditBalance, user.DailyFreeCreditBalance, user.PaidCreditBalance)
+	}
+}
+
 func TestRegisterConsumesInviteAndGrantsCredits(t *testing.T) {
 	ctx, db := setupAuthTestDB(t)
 	service := Service{DB: db}
