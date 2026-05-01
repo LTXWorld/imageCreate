@@ -29,6 +29,9 @@ ALTER TABLE credit_ledger
       'paid_generation_refund',
       'paid_admin_adjustment'
     )
+  ),
+  ADD CONSTRAINT credit_ledger_daily_free_refresh_business_date_check CHECK (
+    type <> 'daily_free_refresh' OR business_date IS NOT NULL
   );
 
 CREATE UNIQUE INDEX credit_ledger_one_daily_free_refresh_per_user_date

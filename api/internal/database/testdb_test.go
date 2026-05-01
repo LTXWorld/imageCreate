@@ -2,9 +2,12 @@ package database
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestIsDisposableTestDatabaseName(t *testing.T) {
@@ -53,6 +56,18 @@ func TestMigrationsAddDailyFreeCreditWalletColumns(t *testing.T) {
 		RETURNING id::text
 	`).Scan(&userID); err != nil {
 		t.Fatalf("insert migrated user shape: %v", err)
+	}
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO credit_ledger (user_id, type, amount, balance_after, reason, wallet_type, business_date)
+		VALUES ($1::uuid, 'daily_free_refresh', 0, 4, 'daily refresh', 'daily_free', NULL)
+	`, userID); err == nil {
+		t.Fatalf("insert daily_free_refresh with NULL business_date succeeded, want constraint failure")
+	} else {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.ConstraintName != "credit_ledger_daily_free_refresh_business_date_check" {
+			t.Fatalf("insert daily_free_refresh with NULL business_date error = %v, want credit_ledger_daily_free_refresh_business_date_check", err)
+		}
 	}
 
 	var freeLimit, freeBalance, paidBalance, total int
