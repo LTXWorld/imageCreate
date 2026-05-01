@@ -1,15 +1,37 @@
 :root {
-  --color-bg: #f7f8f6;
+  /* 仙侠核心色盘 - Xianxia Core Palette */
+  --color-mist: #fcfdfc; /* 仙雾白 */
+  --color-jade-light: #e0f2eb; /* 浅翠 */
+  --color-jade-mid: #1e604a; /* 翠绿 */
+  --color-jade-deep: #123d2f; /* 墨翠 */
+  --color-gold-spirit: #d4af37; /* 灵金 */
+  --color-gold-muted: #c5a059; /* 古金 */
+  --color-ink-deep: #161816; /* 浓墨 */
+  --color-ink-wash: #5c665e; /* 烟墨 */
+
+  /* 基础变量映射 - Standard Mapping */
+  --color-bg: var(--color-mist);
   --color-surface: #ffffff;
-  --color-primary: #164a38;
-  --color-primary-hover: #1e604a;
-  --color-gold: #c5a059;
-  --color-ink: #1a1c1a;
-  --color-ink-muted: #5c665e;
-  --color-border: #e0e4e0;
-  --font-serif: "Noto Serif SC", "Songti SC", STSong, "Noto Serif", serif;
-  --font-sans: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --color-primary: var(--color-jade-mid);
+  --color-primary-hover: var(--color-jade-deep);
+  --color-gold: var(--color-gold-spirit);
+  --color-ink: var(--color-ink-deep);
+  --color-ink-muted: var(--color-ink-wash);
+  --color-border: var(--color-jade-light);
+
+  /* 渐变 - Gradients */
+  --grad-jade: linear-gradient(135deg, var(--color-jade-mid), var(--color-jade-deep));
+  --grad-mist: linear-gradient(to bottom, #fcfdfc, #f4f8f6);
+  --grad-silk: linear-gradient(to right, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.8) 50%, rgba(255, 255, 255, 0) 100%);
+
+  /* 投影与光效 - Shadows & Glows */
+  --shadow-spirit: 0 12px 40px rgba(18, 61, 47, 0.08);
   --shadow-ethereal: 0 8px 32px rgba(22, 74, 56, 0.06);
+  --glow-jade: 0 0 15px rgba(30, 96, 74, 0.2);
+
+  /* 字体 - Typography */
+  --font-serif: "Noto Serif SC", "Songti SC", STSong, "Noto Serif", serif;
+  --font-sans: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   color: var(--color-ink);
   background: var(--color-bg);
@@ -56,34 +78,47 @@ button:disabled {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  padding: 24px 18px;
+  gap: 32px;
+  padding: 32px 20px;
   border-right: 1px solid var(--color-border);
-  background: #eff2ef;
+  background: #f4f8f6;
   box-shadow: inset -10px 0 20px rgba(0, 0, 0, 0.01);
+  position: relative;
+}
+
+.sidebar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  background: linear-gradient(to bottom, rgba(30, 96, 74, 0.03), transparent);
+  pointer-events: none;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  color: var(--color-primary);
+  gap: 12px;
+  min-height: 48px;
+  color: var(--color-jade-deep);
   font-family: var(--font-serif);
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
+  letter-spacing: 1px;
 }
 
 .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   color: #ffffff;
-  background: var(--color-primary);
-  box-shadow: 0 0 10px rgba(22, 74, 56, 0.3);
+  background: var(--grad-jade);
+  box-shadow: var(--glow-jade);
 }
 
 .nav-list {
@@ -108,15 +143,27 @@ button:disabled {
 
 .nav-item:hover,
 .nav-item.active {
-  color: var(--color-primary);
+  color: var(--color-jade-deep);
   background: #ffffff;
-  box-shadow: var(--shadow-ethereal);
-  border-color: var(--color-border);
+  box-shadow: var(--shadow-spirit);
+  border-color: var(--color-jade-light);
 }
 
 .nav-item.active {
-  border-color: var(--color-gold);
+  border-color: var(--color-gold-spirit);
   font-weight: 600;
+  position: relative;
+}
+
+.nav-item.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  background: var(--color-gold-spirit);
+  border-radius: 0 4px 4px 0;
 }
 
 .main-column {
@@ -132,9 +179,21 @@ button:disabled {
   gap: 18px;
   min-height: 88px;
   padding: 20px 32px;
-  border-bottom: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-jade-light);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  position: relative;
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grad-silk);
+  opacity: 0.5;
 }
 
 .topbar h1,
@@ -221,10 +280,26 @@ button:disabled {
 
 .auth-surface,
 .panel {
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border: 1px solid var(--color-jade-light);
+  border-radius: 16px;
   background: var(--color-surface);
-  box-shadow: var(--shadow-ethereal);
+  box-shadow: var(--shadow-spirit);
+  position: relative;
+}
+
+.auth-surface::before,
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--color-gold-spirit), transparent 40%, transparent 60%, var(--color-jade-mid));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.1;
+  pointer-events: none;
 }
 
 .auth-surface {
@@ -321,16 +396,17 @@ button:disabled {
 }
 
 .primary-button {
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--color-jade-deep);
   color: #ffffff;
-  background: var(--color-primary);
-  box-shadow: 0 4px 12px rgba(22, 74, 56, 0.2);
+  background: var(--grad-jade);
+  box-shadow: 0 4px 15px rgba(18, 61, 47, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .primary-button:hover:not(:disabled) {
-  background: var(--color-primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(22, 74, 56, 0.3);
+  background: linear-gradient(135deg, #24755a, #1a5743);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(18, 61, 47, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.3);
 }
 
 .secondary-button {
@@ -382,24 +458,32 @@ button:disabled {
   justify-content: space-between;
   min-height: 44px;
   padding: 0 16px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-jade-light);
   border-radius: 8px;
-  color: var(--color-primary);
+  color: var(--color-jade-deep);
   background: #f0f7f4;
-}
-
-.balance-row span {
-  color: var(--color-ink-muted);
-  font-size: 14px;
+  box-shadow: inset 0 0 10px rgba(30, 96, 74, 0.05);
 }
 
 .private-support {
   display: grid;
   gap: 14px;
-  padding: 18px;
-  border: 1px solid var(--color-border);
+  padding: 20px;
+  border: 1px solid var(--color-jade-light);
   border-radius: 12px;
-  background: #fbfbf0;
+  background: #fbfbf4;
+  position: relative;
+  overflow: hidden;
+}
+
+.private-support::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(to right, transparent, var(--color-gold-spirit), transparent);
 }
 
 .private-support h3 {
