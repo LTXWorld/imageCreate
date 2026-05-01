@@ -214,3 +214,59 @@ func TestRefundGenerationDoesNotDoubleCreditTask(t *testing.T) {
 		t.Fatalf("generation_refund ledger rows = %d, want 1", rows)
 	}
 }
+
+func TestRefreshDailyFreeCreditsRestoresFreeBalanceOnlyOnce(t *testing.T) {
+	ctx, db := setupCreditTestDB(t)
+	userID := insertCreditTestUser(t, ctx, db, "refresh-alice", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 5,
+			daily_free_credit_balance = 1,
+			paid_credit_balance = 9,
+			credit_balance = 10,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE - 1
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed stale wallet: %v", err)
+	}
+
+	service := Service{DB: db}
+	refreshed, err := service.RefreshDailyFreeCredits(ctx, userID)
+	if err != nil {
+		t.Fatalf("refresh daily free credits: %v", err)
+	}
+	if !refreshed {
+		t.Fatal("refreshed = false, want true")
+	}
+
+	refreshed, err = service.RefreshDailyFreeCredits(ctx, userID)
+	if err != nil {
+		t.Fatalf("second refresh daily free credits: %v", err)
+	}
+	if refreshed {
+		t.Fatal("second refreshed = true, want false")
+	}
+
+	var freeBalance, paidBalance, total, ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallet balances: %v", err)
+	}
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND type = $2
+			AND wallet_type = $3
+			AND business_date = CURRENT_DATE
+	`, userID, models.LedgerDailyFreeRefresh, models.WalletDailyFree).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count refresh ledger: %v", err)
+	}
+	if freeBalance != 5 || paidBalance != 9 || total != 14 || ledgerRows != 1 {
+		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 5,9,14,1", freeBalance, paidBalance, total, ledgerRows)
+	}
+}
