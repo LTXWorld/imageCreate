@@ -130,7 +130,7 @@ function PrivateSupportCard() {
       <div>
         <p className="eyebrow">专属服务</p>
         <h3>加 QQ 或微信获取帮助</h3>
-        <p className="support-copy">额度咨询、生成失败处理、提示词优化都可以直接联系。</p>
+        <p className="support-copy">额度咨询、生成失败处理、低价AI会员独享账号购买请直接与下方联系。</p>
       </div>
       <dl className="support-list">
         <div>
