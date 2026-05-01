@@ -77,6 +77,40 @@ function mockAdminFetch() {
             created_at: "2026-04-30T08:00:00Z",
             completed_at: "2026-04-30T08:01:00Z",
           },
+          {
+            id: "task-2",
+            user_id: "user-1",
+            username: "alice",
+            prompt: "失败的森林",
+            size: "1024x1024",
+            status: "failed",
+            latency_ms: 2760,
+            error_code: "upstream_error",
+            error_message: "上游服务超时",
+            created_at: "2026-04-30T08:02:00Z",
+            completed_at: "2026-04-30T08:03:00Z",
+          },
+          {
+            id: "task-3",
+            user_id: "user-1",
+            username: "alice",
+            prompt: "排队的海报",
+            size: "1024x1024",
+            status: "queued",
+            latency_ms: 0,
+            created_at: "2026-04-30T08:04:00Z",
+          },
+          {
+            id: "task-4",
+            user_id: "user-1",
+            username: "alice",
+            prompt: "取消的头像",
+            size: "1024x1024",
+            status: "canceled",
+            latency_ms: 0,
+            created_at: "2026-04-30T08:05:00Z",
+            completed_at: "2026-04-30T08:06:00Z",
+          },
         ],
       });
     }
@@ -274,10 +308,43 @@ describe("AdminPage", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "审计" }));
 
     expect(await screen.findByText("审计里的山谷")).toBeInTheDocument();
-    expect(screen.getByText("succeeded")).toBeInTheDocument();
-    expect(screen.getByText("1024x1024")).toBeInTheDocument();
-    expect(screen.getByText("1240 ms")).toBeInTheDocument();
+    const succeededRow = screen.getByRole("row", { name: /审计里的山谷/ });
+    expect(within(succeededRow).getByText("成功")).toBeInTheDocument();
+    expect(within(succeededRow).getByText("1024x1024")).toBeInTheDocument();
+    expect(within(succeededRow).getByText("1240 ms")).toBeInTheDocument();
     expect(screen.queryByText("/api/generations/task-1/image")).not.toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  test("shows generation success metrics and failed task reasons in the audit tab", async () => {
+    mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "审计" }));
+
+    const taskAudit = await screen.findByLabelText("任务审计");
+    const summary = within(taskAudit).getByLabelText("生图结果汇总");
+    const expectMetric = (label: string, value: string) => {
+      const metric = within(summary).getByText(label).closest(".admin-metric");
+
+      expect(metric).not.toBeNull();
+      expect(within(metric as HTMLElement).getByText(label)).toBeInTheDocument();
+      expect(within(metric as HTMLElement).getByText(value)).toBeInTheDocument();
+    };
+
+    expectMetric("总任务", "4");
+    expectMetric("成功数", "1");
+    expectMetric("失败数", "1");
+    expectMetric("进行中", "1");
+    expectMetric("成功率", "33%");
+    expectMetric("平均耗时", "2000 ms");
+
+    const failedRow = within(taskAudit).getByRole("row", { name: /失败的森林/ });
+    expect(within(failedRow).getByText("失败")).toBeInTheDocument();
+    expect(within(failedRow).getByText("上游服务超时")).toBeInTheDocument();
+
+    const queuedRow = within(taskAudit).getByRole("row", { name: /排队的海报/ });
+    expect(within(queuedRow).getByText("排队中")).toBeInTheDocument();
   });
 });
