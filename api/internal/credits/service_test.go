@@ -614,6 +614,41 @@ func TestRefreshDailyFreeCreditsRestoresFreeBalanceOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestRefreshAllDailyFreeCreditsRefreshesOnlyActiveStaleUsers(t *testing.T) {
+	ctx, db := setupCreditTestDB(t)
+	activeID := insertCreditTestUser(t, ctx, db, "active-stale", models.RoleUser, 0)
+	disabledID := insertCreditTestUser(t, ctx, db, "disabled-stale", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 4,
+			daily_free_credit_balance = 0,
+			paid_credit_balance = 1,
+			credit_balance = 1,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE - 1
+		WHERE id IN ($1::uuid, $2::uuid)
+	`, activeID, disabledID)
+	if err != nil {
+		t.Fatalf("seed stale wallets: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE users SET status = $2 WHERE id = $1::uuid`, disabledID, models.UserStatusDisabled); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+
+	count, err := Service{DB: db}.RefreshAllDailyFreeCredits(ctx)
+	if err != nil {
+		t.Fatalf("refresh all: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("refreshed count = %d, want 1", count)
+	}
+	if got := creditTestBalance(t, ctx, db, activeID); got != 5 {
+		t.Fatalf("active total = %d, want 5", got)
+	}
+	if got := creditTestBalance(t, ctx, db, disabledID); got != 1 {
+		t.Fatalf("disabled total = %d, want 1", got)
+	}
+}
+
 func TestRefreshDailyFreeCreditsDoesNotOverwriteConcurrentRefreshAndDebit(t *testing.T) {
 	ctx, db := setupCreditTestDB(t)
 	userID := insertCreditTestUser(t, ctx, db, "refresh-concurrent", models.RoleUser, 0)

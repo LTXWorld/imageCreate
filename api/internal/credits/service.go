@@ -188,6 +188,39 @@ func (s Service) RefreshDailyFreeCredits(ctx context.Context, userID string) (bo
 	return refreshed, nil
 }
 
+func (s Service) RefreshAllDailyFreeCredits(ctx context.Context) (int, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT id::text
+		FROM users
+		WHERE status = $1
+			AND last_daily_free_credit_refreshed_on < CURRENT_DATE
+		ORDER BY id
+	`, models.UserStatusActive)
+	if err != nil {
+		return 0, fmt.Errorf("query stale daily free credit users: %w", err)
+	}
+	defer rows.Close()
+
+	refreshedCount := 0
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return refreshedCount, fmt.Errorf("scan stale daily free credit user: %w", err)
+		}
+		refreshed, err := s.RefreshDailyFreeCredits(ctx, userID)
+		if err != nil {
+			return refreshedCount, fmt.Errorf("refresh daily free credits for user %s: %w", userID, err)
+		}
+		if refreshed {
+			refreshedCount++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return refreshedCount, fmt.Errorf("iterate stale daily free credit users: %w", err)
+	}
+	return refreshedCount, nil
+}
+
 func (s Service) RefreshDailyFreeCreditsTx(ctx context.Context, tx pgx.Tx, userID string) (bool, error) {
 	var freeLimit, oldFreeBalance, paidBalance int
 	var stale bool
