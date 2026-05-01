@@ -248,7 +248,7 @@ func TestRefreshDailyFreeCreditsRestoresFreeBalanceOnlyOnce(t *testing.T) {
 		t.Fatal("second refreshed = true, want false")
 	}
 
-	var freeBalance, paidBalance, total, ledgerRows int
+	var freeBalance, paidBalance, total, ledgerRows, ledgerAmount int
 	if err := db.QueryRow(ctx, `
 		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
 		FROM users
@@ -257,16 +257,16 @@ func TestRefreshDailyFreeCreditsRestoresFreeBalanceOnlyOnce(t *testing.T) {
 		t.Fatalf("query wallet balances: %v", err)
 	}
 	if err := db.QueryRow(ctx, `
-		SELECT count(*)
+		SELECT count(*), COALESCE(MAX(amount), 0)
 		FROM credit_ledger
 		WHERE user_id = $1::uuid
 			AND type = $2
 			AND wallet_type = $3
 			AND business_date = CURRENT_DATE
-	`, userID, models.LedgerDailyFreeRefresh, models.WalletDailyFree).Scan(&ledgerRows); err != nil {
+	`, userID, models.LedgerDailyFreeRefresh, models.WalletDailyFree).Scan(&ledgerRows, &ledgerAmount); err != nil {
 		t.Fatalf("count refresh ledger: %v", err)
 	}
-	if freeBalance != 5 || paidBalance != 9 || total != 14 || ledgerRows != 1 {
-		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 5,9,14,1", freeBalance, paidBalance, total, ledgerRows)
+	if freeBalance != 5 || paidBalance != 9 || total != 14 || ledgerRows != 1 || ledgerAmount != 4 {
+		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d ledgerAmount=%d, want 5,9,14,1,4", freeBalance, paidBalance, total, ledgerRows, ledgerAmount)
 	}
 }

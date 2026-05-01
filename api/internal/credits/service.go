@@ -136,18 +136,24 @@ func (s Service) RefreshDailyFreeCredits(ctx context.Context, userID string) (bo
 }
 
 func (s Service) RefreshDailyFreeCreditsTx(ctx context.Context, tx pgx.Tx, userID string) (bool, error) {
-	var freeLimit, totalAfter int
+	var refreshAmount, totalAfter int
 	err := tx.QueryRow(ctx, `
+		WITH stale_wallet AS (
+			SELECT id, daily_free_credit_balance AS old_free_balance
+			FROM users
+			WHERE id = $1::uuid
+				AND status = $2
+				AND last_daily_free_credit_refreshed_on < CURRENT_DATE
+		)
 		UPDATE users
 		SET daily_free_credit_balance = daily_free_credit_limit,
 			credit_balance = daily_free_credit_limit + paid_credit_balance,
 			last_daily_free_credit_refreshed_on = CURRENT_DATE,
 			updated_at = now()
-		WHERE id = $1::uuid
-			AND status = $2
-			AND last_daily_free_credit_refreshed_on < CURRENT_DATE
-		RETURNING daily_free_credit_limit, credit_balance
-	`, userID, models.UserStatusActive).Scan(&freeLimit, &totalAfter)
+		FROM stale_wallet
+		WHERE users.id = stale_wallet.id
+		RETURNING daily_free_credit_limit - stale_wallet.old_free_balance, credit_balance
+	`, userID, models.UserStatusActive).Scan(&refreshAmount, &totalAfter)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -159,7 +165,7 @@ func (s Service) RefreshDailyFreeCreditsTx(ctx context.Context, tx pgx.Tx, userI
 		INSERT INTO credit_ledger (user_id, type, wallet_type, amount, balance_after, reason, business_date)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, CURRENT_DATE)
 		ON CONFLICT DO NOTHING
-	`, userID, models.LedgerDailyFreeRefresh, models.WalletDailyFree, freeLimit, totalAfter, "daily free credits refreshed"); err != nil {
+	`, userID, models.LedgerDailyFreeRefresh, models.WalletDailyFree, refreshAmount, totalAfter, "daily free credits refreshed"); err != nil {
 		return false, fmt.Errorf("insert daily free refresh ledger: %w", err)
 	}
 	return true, nil
