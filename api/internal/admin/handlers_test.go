@@ -27,6 +27,7 @@ func setupAdminHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, http.H
 	t.Helper()
 
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	lockAdminTestDatabase(t, databaseURL)
 	db := database.RequireTestDB(t)
 
 	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
@@ -50,6 +51,27 @@ func setupAdminHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, http.H
 	})
 
 	return context.Background(), db, r
+}
+
+func lockAdminTestDatabase(t *testing.T, databaseURL string) {
+	t.Helper()
+	if databaseURL == "" {
+		return
+	}
+
+	ctx := context.Background()
+	lockPool, err := database.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("connect test database lock: %v", err)
+	}
+	if _, err := lockPool.Exec(ctx, `SELECT pg_advisory_lock(20260501)`); err != nil {
+		lockPool.Close()
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = lockPool.Exec(context.Background(), `SELECT pg_advisory_unlock(20260501)`)
+		lockPool.Close()
+	})
 }
 
 func TestAdminCanCreateInvite(t *testing.T) {
@@ -148,7 +170,7 @@ func TestAdminCanAdjustCredits(t *testing.T) {
 		SELECT count(*)
 		FROM credit_ledger
 		WHERE user_id = $1 AND type = $2 AND amount = 3 AND balance_after = 7 AND actor_user_id = $3
-	`, userID, models.LedgerAdminAdjustment, adminID).Scan(&ledgerRows); err != nil {
+	`, userID, models.LedgerPaidAdminAdjustment, adminID).Scan(&ledgerRows); err != nil {
 		t.Fatalf("count ledger rows: %v", err)
 	}
 	if ledgerRows != 1 {
@@ -168,10 +190,66 @@ func TestAdminCanAdjustCredits(t *testing.T) {
 	}
 }
 
+func TestAdjustCreditsUpdatesPaidWalletAndTotal(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "admin-paid-adjust", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "paid-adjust-target", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 2,
+			daily_free_credit_balance = 1,
+			paid_credit_balance = 3,
+			credit_balance = 4
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/credits", `{"amount":2,"reason":"paid top-up"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	var freeBalance, paidBalance, total, ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND type = $2
+			AND wallet_type = $3
+	`, userID, models.LedgerPaidAdminAdjustment, models.WalletPaid).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count paid admin ledger: %v", err)
+	}
+	if freeBalance != 1 || paidBalance != 5 || total != 6 || ledgerRows != 1 {
+		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 1,5,6,1", freeBalance, paidBalance, total, ledgerRows)
+	}
+}
+
 func TestAdminAdjustCreditsRejectsOverflow(t *testing.T) {
 	ctx, db, handler := setupAdminHandlerTest(t)
 	adminID := insertAdminTestUser(t, ctx, db, "overflow-credit-admin", models.RoleAdmin, 0)
 	userID := insertAdminTestUser(t, ctx, db, "overflow-credit-user", models.RoleUser, 2147483647)
+	if _, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_balance = 1,
+			paid_credit_balance = 2147483646,
+			credit_balance = 2147483647
+		WHERE id = $1::uuid
+	`, userID); err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
 
 	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/credits", `{"amount":1,"reason":"too much"}`, adminID)
 	rec := httptest.NewRecorder()
@@ -194,7 +272,7 @@ func TestAdminAdjustCreditsRejectsOverflow(t *testing.T) {
 		SELECT count(*)
 		FROM credit_ledger
 		WHERE user_id = $1 AND type = $2
-	`, userID, models.LedgerAdminAdjustment).Scan(&ledgerRows); err != nil {
+	`, userID, models.LedgerPaidAdminAdjustment).Scan(&ledgerRows); err != nil {
 		t.Fatalf("count ledger rows: %v", err)
 	}
 	if ledgerRows != 0 {
@@ -282,12 +360,64 @@ func TestAdminAdjustCreditsRollsBackWhenAuditFails(t *testing.T) {
 		SELECT count(*)
 		FROM credit_ledger
 		WHERE user_id = $1 AND type = $2 AND amount = 3
-	`, userID, models.LedgerAdminAdjustment).Scan(&ledgerRows); err != nil {
+	`, userID, models.LedgerPaidAdminAdjustment).Scan(&ledgerRows); err != nil {
 		t.Fatalf("count ledger rows: %v", err)
 	}
 	if ledgerRows != 0 {
 		t.Fatalf("admin_adjustment ledger rows = %d, want 0", ledgerRows)
 	}
+}
+
+func TestListUsersReturnsWalletFields(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "list-wallet-admin", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "list-wallet-user", models.RoleUser, 0)
+	if _, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 4,
+			daily_free_credit_balance = 2,
+			paid_credit_balance = 7,
+			credit_balance = 9
+		WHERE id = $1::uuid
+	`, userID); err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	req := authenticatedAdminJSONRequest(t, http.MethodGet, "/api/admin/users", "", adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp struct {
+		Users []struct {
+			ID                     string `json:"id"`
+			CreditBalance          int    `json:"credit_balance"`
+			DailyFreeCreditLimit   int    `json:"daily_free_credit_limit"`
+			DailyFreeCreditBalance int    `json:"daily_free_credit_balance"`
+			PaidCreditBalance      int    `json:"paid_credit_balance"`
+		} `json:"users"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, user := range resp.Users {
+		if user.ID != userID {
+			continue
+		}
+		if user.CreditBalance != 9 || user.DailyFreeCreditLimit != 4 || user.DailyFreeCreditBalance != 2 || user.PaidCreditBalance != 7 {
+			t.Fatalf("wallet fields = total:%d limit:%d free:%d paid:%d, want 9,4,2,7",
+				user.CreditBalance,
+				user.DailyFreeCreditLimit,
+				user.DailyFreeCreditBalance,
+				user.PaidCreditBalance,
+			)
+		}
+		return
+	}
+	t.Fatalf("seeded user %s not found in response", userID)
 }
 
 func TestAdminGenerationListDoesNotReturnImageURL(t *testing.T) {
@@ -507,8 +637,8 @@ func insertAdminTestUser(t *testing.T, ctx context.Context, db *pgxpool.Pool, us
 
 	var userID string
 	if err := db.QueryRow(ctx, `
-		INSERT INTO users (username, password_hash, role, status, credit_balance)
-		VALUES ($1, 'hash', $2, $3, $4)
+		INSERT INTO users (username, password_hash, role, status, credit_balance, paid_credit_balance)
+		VALUES ($1, 'hash', $2, $3, $4, $4)
 		RETURNING id::text
 	`, username, role, models.UserStatusActive, credits).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)
@@ -557,8 +687,8 @@ func insertAdminTestUserWithPassword(t *testing.T, ctx context.Context, db *pgxp
 	}
 	var userID string
 	if err := db.QueryRow(ctx, `
-		INSERT INTO users (username, password_hash, role, status, credit_balance)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO users (username, password_hash, role, status, credit_balance, paid_credit_balance)
+		VALUES ($1, $2, $3, $4, $5, $5)
 		RETURNING id::text
 	`, username, string(hash), role, models.UserStatusActive, credits).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)

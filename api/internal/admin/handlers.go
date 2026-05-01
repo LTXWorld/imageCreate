@@ -38,7 +38,16 @@ func NewHandlers(db *pgxpool.Pool) Handlers {
 
 func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(r.Context(), `
-		SELECT id::text, username, role, status, credit_balance, created_at, updated_at
+		SELECT id::text,
+			username,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			created_at,
+			updated_at
 		FROM users
 		ORDER BY created_at DESC
 	`)
@@ -51,7 +60,18 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users := make([]userResponse, 0)
 	for rows.Next() {
 		var user userResponse
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&user.ID,
+			&user.Username,
+			&user.Role,
+			&user.Status,
+			&user.CreditBalance,
+			&user.DailyFreeCreditLimit,
+			&user.DailyFreeCreditBalance,
+			&user.PaidCreditBalance,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		); err != nil {
 			writeError(w, http.StatusInternalServerError, "服务器错误")
 			return
 		}
@@ -428,13 +448,16 @@ func (h Handlers) ListGenerationTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 type userResponse struct {
-	ID            string    `json:"id"`
-	Username      string    `json:"username"`
-	Role          string    `json:"role"`
-	Status        string    `json:"status"`
-	CreditBalance int       `json:"credit_balance"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                     string    `json:"id"`
+	Username               string    `json:"username"`
+	Role                   string    `json:"role"`
+	Status                 string    `json:"status"`
+	CreditBalance          int       `json:"credit_balance"`
+	DailyFreeCreditLimit   int       `json:"daily_free_credit_limit"`
+	DailyFreeCreditBalance int       `json:"daily_free_credit_balance"`
+	PaidCreditBalance      int       `json:"paid_credit_balance"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 type userSummary struct {
@@ -483,8 +506,28 @@ func updateUserStatus(ctx context.Context, tx pgx.Tx, userID, status string) (us
 		SET status = $2,
 			updated_at = now()
 		WHERE id = $1::uuid
-		RETURNING id::text, username, role, status, credit_balance, created_at, updated_at
-	`, userID, status).Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt)
+		RETURNING id::text,
+			username,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			created_at,
+			updated_at
+	`, userID, status).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Role,
+		&user.Status,
+		&user.CreditBalance,
+		&user.DailyFreeCreditLimit,
+		&user.DailyFreeCreditBalance,
+		&user.PaidCreditBalance,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
 	return user, err
 }
 
@@ -492,34 +535,64 @@ func adjustCredits(ctx context.Context, tx pgx.Tx, userID string, amount int, re
 	var user userResponse
 	err := tx.QueryRow(ctx, `
 		UPDATE users
-		SET credit_balance = (credit_balance::bigint + $2::bigint)::integer,
+		SET paid_credit_balance = (paid_credit_balance::bigint + $2::bigint)::integer,
+			credit_balance = (daily_free_credit_balance::bigint + paid_credit_balance::bigint + $2::bigint)::integer,
 			updated_at = now()
 		WHERE id = $1::uuid
-			AND credit_balance::bigint + $2::bigint BETWEEN 0 AND 2147483647
-		RETURNING id::text, username, role, status, credit_balance, created_at, updated_at
-	`, userID, amount).Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreditBalance, &user.CreatedAt, &user.UpdatedAt)
+			AND paid_credit_balance::bigint + $2::bigint >= 0
+			AND daily_free_credit_balance::bigint + paid_credit_balance::bigint + $2::bigint BETWEEN 0 AND 2147483647
+		RETURNING id::text,
+			username,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			created_at,
+			updated_at
+	`, userID, amount).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Role,
+		&user.Status,
+		&user.CreditBalance,
+		&user.DailyFreeCreditLimit,
+		&user.DailyFreeCreditBalance,
+		&user.PaidCreditBalance,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		var currentBalance int
-		if err := tx.QueryRow(ctx, `SELECT credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&currentBalance); errors.Is(err, pgx.ErrNoRows) {
+		var freeBalance, paidBalance int
+		if err := tx.QueryRow(ctx, `
+			SELECT daily_free_credit_balance, paid_credit_balance
+			FROM users
+			WHERE id = $1::uuid
+		`, userID).Scan(&freeBalance, &paidBalance); errors.Is(err, pgx.ErrNoRows) {
 			return userResponse{}, credits.ErrUserNotFound
 		} else if err != nil {
 			return userResponse{}, err
 		}
 
-		finalBalance := int64(currentBalance) + int64(amount)
-		if finalBalance > int64(maxPostgresInteger) {
+		finalPaidBalance := int64(paidBalance) + int64(amount)
+		if finalPaidBalance < 0 {
+			return userResponse{}, credits.ErrInsufficientCredits
+		}
+		finalBalance := int64(freeBalance) + finalPaidBalance
+		if finalBalance < 0 || finalBalance > int64(maxPostgresInteger) {
 			return userResponse{}, errCreditBalanceOutOfRange
 		}
-		return userResponse{}, credits.ErrInsufficientCredits
+		return userResponse{}, errCreditBalanceOutOfRange
 	}
 	if err != nil {
 		return userResponse{}, err
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO credit_ledger (user_id, type, amount, balance_after, reason, actor_user_id)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)
-	`, userID, models.LedgerAdminAdjustment, amount, user.CreditBalance, reason, actorUserID); err != nil {
+		INSERT INTO credit_ledger (user_id, type, wallet_type, amount, balance_after, reason, actor_user_id)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid)
+	`, userID, models.LedgerPaidAdminAdjustment, models.WalletPaid, amount, user.CreditBalance, reason, actorUserID); err != nil {
 		return userResponse{}, err
 	}
 
