@@ -175,8 +175,21 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function normalizeUser(user: ApiUser): User {
-  const dailyFreeCreditLimit = user.dailyFreeCreditLimit ?? user.daily_free_credit_limit ?? 0;
-  const dailyFreeCreditBalance = user.dailyFreeCreditBalance ?? user.daily_free_credit_balance ?? 0;
+  const explicitCreditBalance = user.creditBalance ?? user.credit_balance;
+  const hasSplitWalletFields =
+    user.dailyFreeCreditLimit !== undefined ||
+    user.daily_free_credit_limit !== undefined ||
+    user.dailyFreeCreditBalance !== undefined ||
+    user.daily_free_credit_balance !== undefined ||
+    user.paidCreditBalance !== undefined ||
+    user.paid_credit_balance !== undefined;
+  const legacyCreditBalance = explicitCreditBalance ?? 0;
+  const dailyFreeCreditLimit = user.dailyFreeCreditLimit ?? user.daily_free_credit_limit ?? (
+    hasSplitWalletFields ? 0 : legacyCreditBalance
+  );
+  const dailyFreeCreditBalance = user.dailyFreeCreditBalance ?? user.daily_free_credit_balance ?? (
+    hasSplitWalletFields ? 0 : legacyCreditBalance
+  );
   const paidCreditBalance = user.paidCreditBalance ?? user.paid_credit_balance ?? 0;
 
   return {
@@ -184,7 +197,7 @@ export function normalizeUser(user: ApiUser): User {
     username: user.username,
     role: user.role,
     status: user.status,
-    creditBalance: user.creditBalance ?? user.credit_balance ?? dailyFreeCreditBalance + paidCreditBalance,
+    creditBalance: explicitCreditBalance ?? dailyFreeCreditBalance + paidCreditBalance,
     dailyFreeCreditLimit,
     dailyFreeCreditBalance,
     paidCreditBalance,

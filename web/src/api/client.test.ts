@@ -80,4 +80,21 @@ describe("api", () => {
     expect(user.dailyFreeCreditBalance).toBe(2);
     expect(user.paidCreditBalance).toBe(5);
   });
+
+  test("derives split wallet fields from legacy credit balance", () => {
+    const { user } = normalizeAuthResponse({
+      user: {
+        id: "user-1",
+        username: "alice",
+        role: "user",
+        status: "active",
+        credit_balance: 5,
+      },
+    });
+
+    expect(user.creditBalance).toBe(5);
+    expect(user.dailyFreeCreditLimit).toBe(5);
+    expect(user.dailyFreeCreditBalance).toBe(5);
+    expect(user.paidCreditBalance).toBe(0);
+  });
 });
