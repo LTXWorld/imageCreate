@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,6 +51,31 @@ func creditTestBalance(t *testing.T, ctx context.Context, db *pgxpool.Pool, user
 		t.Fatalf("query balance: %v", err)
 	}
 	return balance
+}
+
+func waitForBlockedApplication(t *testing.T, ctx context.Context, db *pgxpool.Pool, applicationName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var blocked bool
+		if err := db.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pg_stat_activity
+				WHERE application_name = $1
+					AND wait_event_type = 'Lock'
+			)
+		`, applicationName).Scan(&blocked); err != nil {
+			t.Fatalf("check blocked refresh session: %v", err)
+		}
+		if blocked {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("refresh session %q did not block waiting for row lock", applicationName)
 }
 
 func TestAdjustIncreasesAndDecreasesBalanceAndWritesLedger(t *testing.T) {
@@ -268,5 +294,118 @@ func TestRefreshDailyFreeCreditsRestoresFreeBalanceOnlyOnce(t *testing.T) {
 	}
 	if freeBalance != 5 || paidBalance != 9 || total != 14 || ledgerRows != 1 || ledgerAmount != 4 {
 		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d ledgerAmount=%d, want 5,9,14,1,4", freeBalance, paidBalance, total, ledgerRows, ledgerAmount)
+	}
+}
+
+func TestRefreshDailyFreeCreditsDoesNotOverwriteConcurrentRefreshAndDebit(t *testing.T) {
+	ctx, db := setupCreditTestDB(t)
+	userID := insertCreditTestUser(t, ctx, db, "refresh-concurrent", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 5,
+			daily_free_credit_balance = 1,
+			paid_credit_balance = 9,
+			credit_balance = 10,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE - 1
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed stale wallet: %v", err)
+	}
+
+	blockerTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin blocker tx: %v", err)
+	}
+	defer blockerTx.Rollback(ctx)
+	if _, err := blockerTx.Exec(ctx, `
+		SELECT 1
+		FROM users
+		WHERE id = $1::uuid
+		FOR UPDATE
+	`, userID); err != nil {
+		t.Fatalf("lock user row: %v", err)
+	}
+
+	waiterTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin waiter tx: %v", err)
+	}
+	applicationName := "credit-refresh-waiter-" + userID
+	if _, err := waiterTx.Exec(ctx, `SELECT set_config('application_name', $1, true)`, applicationName); err != nil {
+		_ = waiterTx.Rollback(ctx)
+		t.Fatalf("set waiter application name: %v", err)
+	}
+
+	service := Service{DB: db}
+	type refreshResult struct {
+		refreshed bool
+		err       error
+	}
+	resultCh := make(chan refreshResult, 1)
+	go func() {
+		refreshed, err := service.RefreshDailyFreeCreditsTx(ctx, waiterTx, userID)
+		if err != nil {
+			_ = waiterTx.Rollback(ctx)
+			resultCh <- refreshResult{err: err}
+			return
+		}
+		if err := waiterTx.Commit(ctx); err != nil {
+			resultCh <- refreshResult{err: err}
+			return
+		}
+		resultCh <- refreshResult{refreshed: refreshed}
+	}()
+
+	waitForBlockedApplication(t, ctx, db, applicationName)
+
+	if _, err := blockerTx.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_balance = 4,
+			paid_credit_balance = 9,
+			credit_balance = 13,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE,
+			updated_at = now()
+		WHERE id = $1::uuid
+	`, userID); err != nil {
+		t.Fatalf("simulate concurrent refresh and debit: %v", err)
+	}
+	if err := blockerTx.Commit(ctx); err != nil {
+		t.Fatalf("commit blocker tx: %v", err)
+	}
+
+	var result refreshResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("refresh transaction did not finish after blocker committed")
+	}
+	if result.err != nil {
+		t.Fatalf("refresh daily free credits: %v", result.err)
+	}
+	if result.refreshed {
+		t.Fatal("refreshed = true after concurrent refresh, want false")
+	}
+
+	var freeBalance, paidBalance, total, ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallet balances: %v", err)
+	}
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND type = $2
+			AND wallet_type = $3
+			AND business_date = CURRENT_DATE
+	`, userID, models.LedgerDailyFreeRefresh, models.WalletDailyFree).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count refresh ledger: %v", err)
+	}
+	if freeBalance != 4 || paidBalance != 9 || total != 13 || ledgerRows != 0 {
+		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 4,9,13,0", freeBalance, paidBalance, total, ledgerRows)
 	}
 }

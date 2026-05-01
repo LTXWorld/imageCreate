@@ -136,28 +136,38 @@ func (s Service) RefreshDailyFreeCredits(ctx context.Context, userID string) (bo
 }
 
 func (s Service) RefreshDailyFreeCreditsTx(ctx context.Context, tx pgx.Tx, userID string) (bool, error) {
-	var refreshAmount, totalAfter int
+	var freeLimit, oldFreeBalance, paidBalance int
+	var stale bool
 	err := tx.QueryRow(ctx, `
-		WITH stale_wallet AS (
-			SELECT id, daily_free_credit_balance AS old_free_balance
-			FROM users
-			WHERE id = $1::uuid
-				AND status = $2
-				AND last_daily_free_credit_refreshed_on < CURRENT_DATE
-		)
-		UPDATE users
-		SET daily_free_credit_balance = daily_free_credit_limit,
-			credit_balance = daily_free_credit_limit + paid_credit_balance,
-			last_daily_free_credit_refreshed_on = CURRENT_DATE,
-			updated_at = now()
-		FROM stale_wallet
-		WHERE users.id = stale_wallet.id
-		RETURNING daily_free_credit_limit - stale_wallet.old_free_balance, credit_balance
-	`, userID, models.UserStatusActive).Scan(&refreshAmount, &totalAfter)
+		SELECT daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			COALESCE(last_daily_free_credit_refreshed_on < CURRENT_DATE, false)
+		FROM users
+		WHERE id = $1::uuid
+			AND status = $2
+		FOR UPDATE
+	`, userID, models.UserStatusActive).Scan(&freeLimit, &oldFreeBalance, &paidBalance, &stale)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
+		return false, fmt.Errorf("lock user for daily free refresh: %w", err)
+	}
+	if !stale {
+		return false, nil
+	}
+
+	refreshAmount := freeLimit - oldFreeBalance
+	totalAfter := freeLimit + paidBalance
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_balance = $2,
+			credit_balance = $3,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE,
+			updated_at = now()
+		WHERE id = $1::uuid
+	`, userID, freeLimit, totalAfter); err != nil {
 		return false, fmt.Errorf("refresh daily free credits: %w", err)
 	}
 
