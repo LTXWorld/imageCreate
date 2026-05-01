@@ -29,6 +29,39 @@ func setupCreditTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	return context.Background(), db
 }
 
+func setupCreditTestDBWithMaxConns(t *testing.T, maxConns int32) (context.Context, *pgxpool.Pool) {
+	t.Helper()
+
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	lockTestDatabase(t, databaseURL)
+
+	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatalf("parse test database config: %v", err)
+	}
+	config.MaxConns = maxConns
+
+	ctx := context.Background()
+	db, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	if _, err := db.Exec(ctx, "TRUNCATE audit_logs, credit_ledger, generation_tasks, invites, users RESTART IDENTITY CASCADE"); err != nil {
+		t.Fatalf("truncate test database tables: %v", err)
+	}
+
+	return ctx, db
+}
+
 func lockTestDatabase(t *testing.T, databaseURL string) {
 	t.Helper()
 	if databaseURL == "" {
@@ -646,6 +679,36 @@ func TestRefreshAllDailyFreeCreditsRefreshesOnlyActiveStaleUsers(t *testing.T) {
 	}
 	if got := creditTestBalance(t, ctx, db, disabledID); got != 1 {
 		t.Fatalf("disabled total = %d, want 1", got)
+	}
+}
+
+func TestRefreshAllDailyFreeCreditsCompletesWithSingleConnectionPool(t *testing.T) {
+	ctx, db := setupCreditTestDBWithMaxConns(t, 1)
+	userID := insertCreditTestUser(t, ctx, db, "single-connection-stale", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 4,
+			daily_free_credit_balance = 0,
+			paid_credit_balance = 1,
+			credit_balance = 1,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE - 1
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed stale wallet: %v", err)
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	count, err := Service{DB: db}.RefreshAllDailyFreeCredits(refreshCtx)
+	if err != nil {
+		t.Fatalf("refresh all with single connection: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("refreshed count = %d, want 1", count)
+	}
+	if got := creditTestBalance(t, ctx, db, userID); got != 5 {
+		t.Fatalf("total = %d, want 5", got)
 	}
 }
 

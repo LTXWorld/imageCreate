@@ -199,14 +199,24 @@ func (s Service) RefreshAllDailyFreeCredits(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("query stale daily free credit users: %w", err)
 	}
-	defer rows.Close()
 
-	refreshedCount := 0
+	var userIDs []string
 	for rows.Next() {
 		var userID string
 		if err := rows.Scan(&userID); err != nil {
-			return refreshedCount, fmt.Errorf("scan stale daily free credit user: %w", err)
+			rows.Close()
+			return 0, fmt.Errorf("scan stale daily free credit user: %w", err)
 		}
+		userIDs = append(userIDs, userID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("iterate stale daily free credit users: %w", err)
+	}
+	rows.Close()
+
+	refreshedCount := 0
+	for _, userID := range userIDs {
 		refreshed, err := s.RefreshDailyFreeCredits(ctx, userID)
 		if err != nil {
 			return refreshedCount, fmt.Errorf("refresh daily free credits for user %s: %w", userID, err)
@@ -214,9 +224,6 @@ func (s Service) RefreshAllDailyFreeCredits(ctx context.Context) (int, error) {
 		if refreshed {
 			refreshedCount++
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return refreshedCount, fmt.Errorf("iterate stale daily free credit users: %w", err)
 	}
 	return refreshedCount, nil
 }
