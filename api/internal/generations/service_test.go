@@ -17,7 +17,6 @@ func setupGenerationTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	lockTestDatabase(t, databaseURL)
 	db := database.RequireTestDB(t)
 
 	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
@@ -25,27 +24,6 @@ func setupGenerationTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	}
 
 	return context.Background(), db
-}
-
-func lockTestDatabase(t *testing.T, databaseURL string) {
-	t.Helper()
-	if databaseURL == "" {
-		return
-	}
-
-	ctx := context.Background()
-	lockPool, err := database.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect test database lock: %v", err)
-	}
-	if _, err := lockPool.Exec(ctx, `SELECT pg_advisory_lock(20260501)`); err != nil {
-		lockPool.Close()
-		t.Fatalf("lock test database: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = lockPool.Exec(context.Background(), `SELECT pg_advisory_unlock(20260501)`)
-		lockPool.Close()
-	})
 }
 
 func testService(db *pgxpool.Pool) Service {

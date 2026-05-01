@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,6 +23,7 @@ func RequireTestDB(t *testing.T) *pgxpool.Pool {
 	}
 
 	requireDisposableDatabase(t, databaseURL)
+	LockTestDatabase(t, databaseURL)
 
 	pool, err := Connect(context.Background(), databaseURL)
 	if err != nil {
@@ -32,6 +34,28 @@ func RequireTestDB(t *testing.T) *pgxpool.Pool {
 	truncateAppTables(t, pool)
 
 	return pool
+}
+
+func LockTestDatabase(t *testing.T, databaseURL string) {
+	t.Helper()
+	if databaseURL == "" {
+		return
+	}
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("connect test database lock: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(20260501)`); err != nil {
+		_ = conn.Close(ctx)
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		_, _ = conn.Exec(cleanupCtx, `SELECT pg_advisory_unlock(20260501)`)
+		_ = conn.Close(cleanupCtx)
+	})
 }
 
 func requireDisposableDatabase(t *testing.T, databaseURL string) {

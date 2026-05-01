@@ -45,8 +45,16 @@ func insertWorkerTestUser(t *testing.T, ctx context.Context, db *pgxpool.Pool, u
 
 	var userID string
 	if err := db.QueryRow(ctx, `
-		INSERT INTO users (username, password_hash, role, status, credit_balance)
-		VALUES ($1, 'hash', $2, $3, $4)
+		INSERT INTO users (
+			username,
+			password_hash,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance
+		)
+		VALUES ($1, 'hash', $2, $3, $4, $4, $4)
 		RETURNING id::text
 	`, username, models.RoleUser, models.UserStatusActive, credits).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)
@@ -83,7 +91,7 @@ func workerRefundLedgerRows(t *testing.T, ctx context.Context, db *pgxpool.Pool,
 		SELECT count(*)
 		FROM credit_ledger
 		WHERE user_id = $1 AND task_id = $2 AND type = $3
-	`, userID, taskID, models.LedgerGenerationRefund).Scan(&rows); err != nil {
+	`, userID, taskID, models.LedgerDailyFreeGenerationRefund).Scan(&rows); err != nil {
 		t.Fatalf("count refund ledger rows: %v", err)
 	}
 	return rows

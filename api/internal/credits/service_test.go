@@ -19,7 +19,6 @@ func setupCreditTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	lockTestDatabase(t, databaseURL)
 	db := database.RequireTestDB(t)
 
 	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
@@ -36,7 +35,7 @@ func setupCreditTestDBWithMaxConns(t *testing.T, maxConns int32) (context.Contex
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
 	}
-	lockTestDatabase(t, databaseURL)
+	database.LockTestDatabase(t, databaseURL)
 
 	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
 		t.Fatalf("run migrations: %v", err)
@@ -60,27 +59,6 @@ func setupCreditTestDBWithMaxConns(t *testing.T, maxConns int32) (context.Contex
 	}
 
 	return ctx, db
-}
-
-func lockTestDatabase(t *testing.T, databaseURL string) {
-	t.Helper()
-	if databaseURL == "" {
-		return
-	}
-
-	ctx := context.Background()
-	lockPool, err := database.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect test database lock: %v", err)
-	}
-	if _, err := lockPool.Exec(ctx, `SELECT pg_advisory_lock(20260501)`); err != nil {
-		lockPool.Close()
-		t.Fatalf("lock test database: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = lockPool.Exec(context.Background(), `SELECT pg_advisory_unlock(20260501)`)
-		lockPool.Close()
-	})
 }
 
 func insertCreditTestUser(t *testing.T, ctx context.Context, db *pgxpool.Pool, username, role string, credits int) string {

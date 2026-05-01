@@ -27,7 +27,6 @@ func setupAdminHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, http.H
 	t.Helper()
 
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	lockAdminTestDatabase(t, databaseURL)
 	db := database.RequireTestDB(t)
 
 	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
@@ -51,27 +50,6 @@ func setupAdminHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, http.H
 	})
 
 	return context.Background(), db, r
-}
-
-func lockAdminTestDatabase(t *testing.T, databaseURL string) {
-	t.Helper()
-	if databaseURL == "" {
-		return
-	}
-
-	ctx := context.Background()
-	lockPool, err := database.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("connect test database lock: %v", err)
-	}
-	if _, err := lockPool.Exec(ctx, `SELECT pg_advisory_lock(20260501)`); err != nil {
-		lockPool.Close()
-		t.Fatalf("lock test database: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = lockPool.Exec(context.Background(), `SELECT pg_advisory_unlock(20260501)`)
-		lockPool.Close()
-	})
 }
 
 func TestAdminCanCreateInvite(t *testing.T) {
