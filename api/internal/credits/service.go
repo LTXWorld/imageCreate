@@ -79,21 +79,6 @@ func (s Service) RefundGeneration(ctx context.Context, tx pgx.Tx, userID string,
 		return fmt.Errorf("lock generation task for refund: %w", err)
 	}
 
-	var alreadyRefunded bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM credit_ledger
-			WHERE task_id = $1::uuid
-				AND type IN ($2, $3)
-		)
-	`, taskID, models.LedgerDailyFreeGenerationRefund, models.LedgerPaidGenerationRefund).Scan(&alreadyRefunded); err != nil {
-		return fmt.Errorf("check existing generation refund: %w", err)
-	}
-	if alreadyRefunded {
-		return nil
-	}
-
 	var debitType, walletType string
 	err = tx.QueryRow(ctx, `
 		SELECT type, wallet_type
@@ -112,11 +97,35 @@ func (s Service) RefundGeneration(ctx context.Context, tx pgx.Tx, userID string,
 		return fmt.Errorf("find original generation debit ledger: %w", err)
 	}
 
-	var balanceAfter int
 	var refundType string
 	switch {
 	case debitType == models.LedgerDailyFreeGenerationDebit && walletType == models.WalletDailyFree:
 		refundType = models.LedgerDailyFreeGenerationRefund
+	case debitType == models.LedgerPaidGenerationDebit && walletType == models.WalletPaid:
+		refundType = models.LedgerPaidGenerationRefund
+	default:
+		return fmt.Errorf("unsupported generation debit wallet: type=%s wallet_type=%s", debitType, walletType)
+	}
+
+	var alreadyRefunded bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM credit_ledger
+			WHERE task_id = $1::uuid
+				AND type = $2
+				AND wallet_type = $3
+		)
+	`, taskID, refundType, walletType).Scan(&alreadyRefunded); err != nil {
+		return fmt.Errorf("check existing generation refund: %w", err)
+	}
+	if alreadyRefunded {
+		return nil
+	}
+
+	var balanceAfter int
+	switch {
+	case debitType == models.LedgerDailyFreeGenerationDebit && walletType == models.WalletDailyFree:
 		if err := tx.QueryRow(ctx, `
 			UPDATE users
 			SET daily_free_credit_balance = daily_free_credit_balance + 1,
@@ -131,7 +140,6 @@ func (s Service) RefundGeneration(ctx context.Context, tx pgx.Tx, userID string,
 			return fmt.Errorf("refund daily free generation credit: %w", err)
 		}
 	case debitType == models.LedgerPaidGenerationDebit && walletType == models.WalletPaid:
-		refundType = models.LedgerPaidGenerationRefund
 		if err := tx.QueryRow(ctx, `
 			UPDATE users
 			SET paid_credit_balance = paid_credit_balance + 1,
@@ -145,8 +153,6 @@ func (s Service) RefundGeneration(ctx context.Context, tx pgx.Tx, userID string,
 			}
 			return fmt.Errorf("refund paid generation credit: %w", err)
 		}
-	default:
-		return fmt.Errorf("unsupported generation debit wallet: type=%s wallet_type=%s", debitType, walletType)
 	}
 
 	if _, err := tx.Exec(ctx, `
