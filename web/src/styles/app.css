@@ -22,6 +22,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -231,6 +232,7 @@ button:disabled {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   padding: 9px 11px;
@@ -241,7 +243,8 @@ button:disabled {
   color: #25231f;
 }
 
-.field input {
+.field input,
+.field select {
   min-height: 42px;
 }
 
@@ -252,6 +255,7 @@ button:disabled {
 }
 
 .field input:focus,
+.field select:focus,
 .field textarea:focus {
   border-color: #2f6f5e;
   box-shadow: 0 0 0 3px rgba(47, 111, 94, 0.14);
@@ -735,6 +739,18 @@ button:disabled {
 .admin-metric strong {
   color: #25231f;
   font-size: 18px;
+}
+
+.admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.compact-field {
+  min-width: 180px;
+  max-width: 220px;
 }
 
 .compact-form {

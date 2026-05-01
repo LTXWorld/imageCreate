@@ -43,6 +43,18 @@ function mockAdminFetch() {
             created_at: "2026-04-30T08:00:00Z",
             updated_at: "2026-04-30T08:00:00Z",
           },
+          {
+            id: "user-2",
+            username: "bob",
+            role: "user",
+            status: "active",
+            credit_balance: 2,
+            daily_free_credit_limit: 5,
+            daily_free_credit_balance: 2,
+            paid_credit_balance: 0,
+            created_at: "2026-04-30T09:00:00Z",
+            updated_at: "2026-04-30T09:00:00Z",
+          },
         ],
       });
     }
@@ -111,6 +123,29 @@ function mockAdminFetch() {
             created_at: "2026-04-30T08:05:00Z",
             completed_at: "2026-04-30T08:06:00Z",
           },
+          {
+            id: "task-5",
+            user_id: "user-2",
+            username: "bob",
+            prompt: "bob 的成功海报",
+            size: "1024x1024",
+            status: "succeeded",
+            latency_ms: 500,
+            created_at: "2026-04-30T09:02:00Z",
+            completed_at: "2026-04-30T09:03:00Z",
+          },
+          {
+            id: "task-6",
+            user_id: "user-2",
+            username: "bob",
+            prompt: "bob 的失败海报",
+            size: "1024x1024",
+            status: "failed",
+            latency_ms: 700,
+            error_code: "policy_blocked",
+            created_at: "2026-04-30T09:04:00Z",
+            completed_at: "2026-04-30T09:05:00Z",
+          },
         ],
       });
     }
@@ -169,7 +204,7 @@ describe("AdminPage", () => {
     expect(screen.getByText("3/5")).toBeInTheDocument();
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.getByText("8")).toBeInTheDocument();
-    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /alice/ })).getByText("active")).toBeInTheDocument();
   });
 
   test("creates an invite with initial credits", async () => {
@@ -333,12 +368,12 @@ describe("AdminPage", () => {
       expect(within(metric as HTMLElement).getByText(value)).toBeInTheDocument();
     };
 
-    expectMetric("总任务", "4");
-    expectMetric("成功数", "1");
-    expectMetric("失败数", "1");
+    expectMetric("总任务", "6");
+    expectMetric("成功数", "2");
+    expectMetric("失败数", "2");
     expectMetric("进行中", "1");
-    expectMetric("成功率", "33%");
-    expectMetric("平均耗时", "2000 ms");
+    expectMetric("成功率", "40%");
+    expectMetric("平均耗时", "1300 ms");
 
     const failedRow = within(taskAudit).getByRole("row", { name: /失败的森林/ });
     expect(within(failedRow).getByText("失败")).toBeInTheDocument();
@@ -346,5 +381,49 @@ describe("AdminPage", () => {
 
     const queuedRow = within(taskAudit).getByRole("row", { name: /排队的海报/ });
     expect(within(queuedRow).getByText("排队中")).toBeInTheDocument();
+  });
+
+  test("filters generation task metrics and rows by user and status", async () => {
+    mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "审计" }));
+    const taskAudit = await screen.findByLabelText("任务审计");
+
+    await userEvent.selectOptions(within(taskAudit).getByLabelText("筛选用户"), "user-2");
+    await userEvent.selectOptions(within(taskAudit).getByLabelText("筛选状态"), "failed");
+
+    const summary = within(taskAudit).getByLabelText("生图结果汇总");
+    const totalMetric = within(summary).getByText("总任务").closest(".admin-metric");
+    const failedMetric = within(summary).getByText("失败数").closest(".admin-metric");
+    const successRateMetric = within(summary).getByText("成功率").closest(".admin-metric");
+
+    expect(totalMetric).not.toBeNull();
+    expect(failedMetric).not.toBeNull();
+    expect(successRateMetric).not.toBeNull();
+    expect(within(totalMetric as HTMLElement).getByText("1")).toBeInTheDocument();
+    expect(within(failedMetric as HTMLElement).getByText("1")).toBeInTheDocument();
+    expect(within(successRateMetric as HTMLElement).getByText("0%")).toBeInTheDocument();
+
+    expect(within(taskAudit).getByText("bob 的失败海报")).toBeInTheDocument();
+    expect(within(taskAudit).queryByText("bob 的成功海报")).not.toBeInTheDocument();
+    expect(within(taskAudit).queryByText("失败的森林")).not.toBeInTheDocument();
+    expect(within(taskAudit).getByText("policy_blocked")).toBeInTheDocument();
+  });
+
+  test("shows an empty task message when generation filters match no rows", async () => {
+    mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "审计" }));
+    const taskAudit = await screen.findByLabelText("任务审计");
+
+    await userEvent.selectOptions(within(taskAudit).getByLabelText("筛选用户"), "user-2");
+    await userEvent.selectOptions(within(taskAudit).getByLabelText("筛选状态"), "running");
+
+    expect(within(taskAudit).getByText("暂无匹配任务")).toBeInTheDocument();
+    expect(within(taskAudit).queryByText("bob 的成功海报")).not.toBeInTheDocument();
   });
 });

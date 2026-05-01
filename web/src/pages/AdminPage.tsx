@@ -18,6 +18,7 @@ type AdminPageProps = {
 };
 
 type AdminTab = "users" | "invites" | "credits" | "security" | "audit";
+type GenerationStatusFilter = AdminGenerationTask["status"] | "all";
 
 type CreditDraft = {
   amount: string;
@@ -30,6 +31,15 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "credits", label: "额度" },
   { id: "security", label: "安全" },
   { id: "audit", label: "审计" },
+];
+
+const generationStatusFilterOptions: Array<{ value: GenerationStatusFilter; label: string }> = [
+  { value: "all", label: "全部状态" },
+  { value: "succeeded", label: "成功" },
+  { value: "failed", label: "失败" },
+  { value: "queued", label: "排队中" },
+  { value: "running", label: "生成中" },
+  { value: "canceled", label: "已取消" },
 ];
 
 function formatTime(value: string | undefined) {
@@ -95,6 +105,8 @@ export function AdminPage({ user }: AdminPageProps) {
   const [invites, setInvites] = useState<AdminInvite[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
   const [generationTasks, setGenerationTasks] = useState<AdminGenerationTask[]>([]);
+  const [generationUserFilter, setGenerationUserFilter] = useState("all");
+  const [generationStatusFilter, setGenerationStatusFilter] = useState<GenerationStatusFilter>("all");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteCredits, setInviteCredits] = useState("5");
   const [creditDrafts, setCreditDrafts] = useState<Record<string, CreditDraft>>({});
@@ -110,7 +122,12 @@ export function AdminPage({ user }: AdminPageProps) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const generationSummary = summarizeGenerationTasks(generationTasks);
+  const filteredGenerationTasks = generationTasks.filter((task) => {
+    const matchesUser = generationUserFilter === "all" || task.userId === generationUserFilter;
+    const matchesStatus = generationStatusFilter === "all" || task.status === generationStatusFilter;
+    return matchesUser && matchesStatus;
+  });
+  const generationSummary = summarizeGenerationTasks(filteredGenerationTasks);
 
   useEffect(() => {
     if (user.role !== "admin") {
@@ -637,6 +654,37 @@ export function AdminPage({ user }: AdminPageProps) {
                 <strong>{formatLatency(generationSummary.averageLatencyMs)}</strong>
               </div>
             </div>
+            <div className="admin-filters" aria-label="任务筛选">
+              <label className="field compact-field">
+                <span>用户</span>
+                <select
+                  aria-label="筛选用户"
+                  onChange={(event) => setGenerationUserFilter(event.target.value)}
+                  value={generationUserFilter}
+                >
+                  <option value="all">全部用户</option>
+                  {users.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.username}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field compact-field">
+                <span>状态</span>
+                <select
+                  aria-label="筛选状态"
+                  onChange={(event) => setGenerationStatusFilter(event.target.value as GenerationStatusFilter)}
+                  value={generationStatusFilter}
+                >
+                  {generationStatusFilterOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="table-wrap">
               <table className="admin-table">
                 <thead>
@@ -651,7 +699,7 @@ export function AdminPage({ user }: AdminPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {generationTasks.map((task) => (
+                  {filteredGenerationTasks.map((task) => (
                     <tr key={task.id}>
                       <td>{task.username}</td>
                       <td>{task.prompt}</td>
@@ -662,6 +710,11 @@ export function AdminPage({ user }: AdminPageProps) {
                       <td>{formatTime(task.createdAt)}</td>
                     </tr>
                   ))}
+                  {filteredGenerationTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>暂无匹配任务</td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
