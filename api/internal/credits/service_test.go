@@ -83,6 +83,20 @@ func creditTestBalance(t *testing.T, ctx context.Context, db *pgxpool.Pool, user
 	return balance
 }
 
+func creditTestWallets(t *testing.T, ctx context.Context, db *pgxpool.Pool, userID string) (int, int, int) {
+	t.Helper()
+
+	var freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallet balances: %v", err)
+	}
+	return freeBalance, paidBalance, total
+}
+
 func waitForBlockedApplication(t *testing.T, ctx context.Context, db *pgxpool.Pool, applicationName string) {
 	t.Helper()
 
@@ -117,15 +131,17 @@ func TestAdjustIncreasesAndDecreasesBalanceAndWritesLedger(t *testing.T) {
 	if err := service.Adjust(ctx, userID, 3, "bonus credits", actorID); err != nil {
 		t.Fatalf("increase adjustment: %v", err)
 	}
-	if got := creditTestBalance(t, ctx, db, userID); got != 8 {
-		t.Fatalf("credit_balance after increase = %d, want 8", got)
+	freeBalance, paidBalance, total := creditTestWallets(t, ctx, db, userID)
+	if freeBalance != 5 || paidBalance != 3 || total != 8 {
+		t.Fatalf("wallets after increase free=%d paid=%d total=%d, want 5,3,8", freeBalance, paidBalance, total)
 	}
 
 	if err := service.Adjust(ctx, userID, -2, "manual correction", actorID); err != nil {
 		t.Fatalf("decrease adjustment: %v", err)
 	}
-	if got := creditTestBalance(t, ctx, db, userID); got != 6 {
-		t.Fatalf("credit_balance after decrease = %d, want 6", got)
+	freeBalance, paidBalance, total = creditTestWallets(t, ctx, db, userID)
+	if freeBalance != 5 || paidBalance != 1 || total != 6 {
+		t.Fatalf("wallets after decrease free=%d paid=%d total=%d, want 5,1,6", freeBalance, paidBalance, total)
 	}
 
 	var rows int
@@ -135,13 +151,14 @@ func TestAdjustIncreasesAndDecreasesBalanceAndWritesLedger(t *testing.T) {
 		WHERE user_id = $1
 			AND actor_user_id = $2
 			AND type = $3
+			AND wallet_type = $4
 			AND ((amount = 3 AND balance_after = 8 AND reason = 'bonus credits')
 				OR (amount = -2 AND balance_after = 6 AND reason = 'manual correction'))
-	`, userID, actorID, models.LedgerAdminAdjustment).Scan(&rows); err != nil {
+	`, userID, actorID, models.LedgerPaidAdminAdjustment, models.WalletPaid).Scan(&rows); err != nil {
 		t.Fatalf("count adjustment ledger rows: %v", err)
 	}
 	if rows != 2 {
-		t.Fatalf("admin_adjustment ledger rows = %d, want 2", rows)
+		t.Fatalf("paid_admin_adjustment ledger rows = %d, want 2", rows)
 	}
 }
 
@@ -151,12 +168,13 @@ func TestAdjustRejectsNegativeFinalBalanceAndLeavesStateUnchanged(t *testing.T) 
 	userID := insertCreditTestUser(t, ctx, db, "bob", models.RoleUser, 2)
 	actorID := insertCreditTestUser(t, ctx, db, "root", models.RoleAdmin, 0)
 
-	err := service.Adjust(ctx, userID, -3, "too much", actorID)
+	err := service.Adjust(ctx, userID, -1, "too much", actorID)
 	if !errors.Is(err, ErrInsufficientCredits) {
 		t.Fatalf("adjust error = %v, want ErrInsufficientCredits", err)
 	}
-	if got := creditTestBalance(t, ctx, db, userID); got != 2 {
-		t.Fatalf("credit_balance = %d, want 2", got)
+	freeBalance, paidBalance, total := creditTestWallets(t, ctx, db, userID)
+	if freeBalance != 2 || paidBalance != 0 || total != 2 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 2,0,2", freeBalance, paidBalance, total)
 	}
 
 	var rows int
@@ -227,6 +245,116 @@ func TestRefundGenerationIncrementsBalanceAndWritesTaskLedger(t *testing.T) {
 	}
 	if amount != 1 || balanceAfter != 2 || reason != "provider failed" {
 		t.Fatalf("refund ledger amount=%d balance_after=%d reason=%q, want amount=1 balance_after=2 reason=%q", amount, balanceAfter, reason, "provider failed")
+	}
+}
+
+func TestRefundGenerationRefundsLegacyDebitToDailyFreeWallet(t *testing.T) {
+	ctx, db := setupCreditTestDB(t)
+	service := Service{DB: db}
+	userID := insertCreditTestUser(t, ctx, db, "legacy-debit-refund", models.RoleUser, 1)
+
+	var taskID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
+		VALUES ($1, 'prompt', '1024x1024', $2, 'test-model')
+		RETURNING id::text
+	`, userID, models.TaskFailed).Scan(&taskID); err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO credit_ledger (user_id, task_id, type, amount, balance_after, reason)
+		VALUES ($1::uuid, $2::uuid, $3, -1, 1, 'legacy generation task created')
+	`, userID, taskID, models.LedgerGenerationDebit); err != nil {
+		t.Fatalf("insert legacy debit ledger: %v", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := service.RefundGeneration(ctx, tx, userID, taskID, "provider failed"); err != nil {
+		t.Fatalf("refund generation: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	freeBalance, paidBalance, total := creditTestWallets(t, ctx, db, userID)
+	if freeBalance != 2 || paidBalance != 0 || total != 2 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 2,0,2", freeBalance, paidBalance, total)
+	}
+
+	var rows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND task_id = $2::uuid
+			AND type = $3
+			AND wallet_type = $4
+	`, userID, taskID, models.LedgerDailyFreeGenerationRefund, models.WalletDailyFree).Scan(&rows); err != nil {
+		t.Fatalf("count daily free refund rows: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("daily free refund ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestRefundGenerationTreatsLegacyRefundLedgerAsIdempotentForLegacyDebit(t *testing.T) {
+	ctx, db := setupCreditTestDB(t)
+	service := Service{DB: db}
+	userID := insertCreditTestUser(t, ctx, db, "legacy-refund-idempotent", models.RoleUser, 1)
+
+	var taskID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
+		VALUES ($1, 'prompt', '1024x1024', $2, 'test-model')
+		RETURNING id::text
+	`, userID, models.TaskFailed).Scan(&taskID); err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO credit_ledger (user_id, task_id, type, amount, balance_after, reason)
+		VALUES
+			($1::uuid, $2::uuid, $3, -1, 1, 'legacy generation task created'),
+			($1::uuid, $2::uuid, $4, 1, 2, 'legacy refund already written')
+	`, userID, taskID, models.LedgerGenerationDebit, models.LedgerGenerationRefund); err != nil {
+		t.Fatalf("insert legacy ledger rows: %v", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := service.RefundGeneration(ctx, tx, userID, taskID, "provider failed"); err != nil {
+		t.Fatalf("refund generation: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	freeBalance, paidBalance, total := creditTestWallets(t, ctx, db, userID)
+	if freeBalance != 1 || paidBalance != 0 || total != 1 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 1,0,1", freeBalance, paidBalance, total)
+	}
+
+	var rows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND task_id = $2::uuid
+			AND type = $3
+			AND wallet_type = $4
+	`, userID, taskID, models.LedgerDailyFreeGenerationRefund, models.WalletDailyFree).Scan(&rows); err != nil {
+		t.Fatalf("count daily free refund rows: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("daily free refund ledger rows = %d, want 0", rows)
 	}
 }
 
