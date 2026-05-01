@@ -50,6 +50,45 @@ function metadataText(value: unknown) {
   return JSON.stringify(value);
 }
 
+function taskStatusLabel(status: AdminGenerationTask["status"]) {
+  const labels: Record<AdminGenerationTask["status"], string> = {
+    queued: "排队中",
+    running: "生成中",
+    succeeded: "成功",
+    failed: "失败",
+    canceled: "已取消",
+  };
+  return labels[status] ?? status;
+}
+
+function taskFailureReason(task: AdminGenerationTask) {
+  if (task.status !== "failed") return "-";
+  return task.errorMessage || task.errorCode || "-";
+}
+
+function formatLatency(ms: number) {
+  return ms > 0 ? `${ms} ms` : "-";
+}
+
+function summarizeGenerationTasks(tasks: AdminGenerationTask[]) {
+  const completedWithLatency = tasks.filter((task) => task.completedAt && task.latencyMs > 0);
+  const latencyTotal = completedWithLatency.reduce((total, task) => total + task.latencyMs, 0);
+  const succeeded = tasks.filter((task) => task.status === "succeeded").length;
+  const failed = tasks.filter((task) => task.status === "failed").length;
+  const canceled = tasks.filter((task) => task.status === "canceled").length;
+  const active = tasks.filter((task) => task.status === "queued" || task.status === "running").length;
+  const terminal = succeeded + failed + canceled;
+
+  return {
+    total: tasks.length,
+    succeeded,
+    failed,
+    active,
+    successRate: terminal > 0 ? Math.round((succeeded / terminal) * 100) : 0,
+    averageLatencyMs: completedWithLatency.length > 0 ? Math.round(latencyTotal / completedWithLatency.length) : 0,
+  };
+}
+
 export function AdminPage({ user }: AdminPageProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -70,6 +109,8 @@ export function AdminPage({ user }: AdminPageProps) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  const generationSummary = summarizeGenerationTasks(generationTasks);
 
   useEffect(() => {
     if (user.role !== "admin") {
@@ -568,8 +609,34 @@ export function AdminPage({ user }: AdminPageProps) {
 
       {!loading && activeTab === "audit" ? (
         <section className="admin-grid">
-          <section className="admin-section panel" aria-labelledby="task-audit-title">
+          <section className="admin-section panel" aria-label="任务审计">
             <h3 id="task-audit-title">任务审计</h3>
+            <div className="admin-metrics" aria-label="生图结果汇总">
+              <div className="admin-metric">
+                <span>总任务</span>
+                <strong>{generationSummary.total}</strong>
+              </div>
+              <div className="admin-metric">
+                <span>成功数</span>
+                <strong>{generationSummary.succeeded}</strong>
+              </div>
+              <div className="admin-metric">
+                <span>失败数</span>
+                <strong>{generationSummary.failed}</strong>
+              </div>
+              <div className="admin-metric">
+                <span>进行中</span>
+                <strong>{generationSummary.active}</strong>
+              </div>
+              <div className="admin-metric">
+                <span>成功率</span>
+                <strong>{generationSummary.successRate}%</strong>
+              </div>
+              <div className="admin-metric">
+                <span>平均耗时</span>
+                <strong>{formatLatency(generationSummary.averageLatencyMs)}</strong>
+              </div>
+            </div>
             <div className="table-wrap">
               <table className="admin-table">
                 <thead>
@@ -577,6 +644,7 @@ export function AdminPage({ user }: AdminPageProps) {
                     <th>用户</th>
                     <th>提示词</th>
                     <th>状态</th>
+                    <th>失败原因</th>
                     <th>尺寸</th>
                     <th>耗时</th>
                     <th>时间</th>
@@ -587,9 +655,10 @@ export function AdminPage({ user }: AdminPageProps) {
                     <tr key={task.id}>
                       <td>{task.username}</td>
                       <td>{task.prompt}</td>
-                      <td>{task.status}</td>
+                      <td>{taskStatusLabel(task.status)}</td>
+                      <td>{taskFailureReason(task)}</td>
                       <td>{task.size}</td>
-                      <td>{task.latencyMs} ms</td>
+                      <td>{formatLatency(task.latencyMs)}</td>
                       <td>{formatTime(task.createdAt)}</td>
                     </tr>
                   ))}

@@ -709,6 +709,34 @@ button:disabled {
   align-items: start;
 }
 
+.admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.admin-metric {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid #eee8dc;
+  border-radius: 8px;
+  background: #fffdfa;
+}
+
+.admin-metric span {
+  color: #7f7463;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-metric strong {
+  color: #25231f;
+  font-size: 18px;
+}
+
 .compact-form {
   display: grid;
   gap: 14px;
