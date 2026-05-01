@@ -17,6 +17,7 @@ func setupGenerationTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	lockTestDatabase(t, databaseURL)
 	db := database.RequireTestDB(t)
 
 	if err := database.RunMigrations(databaseURL, filepath.Join("..", "..", "migrations")); err != nil {
@@ -24,6 +25,27 @@ func setupGenerationTestDB(t *testing.T) (context.Context, *pgxpool.Pool) {
 	}
 
 	return context.Background(), db
+}
+
+func lockTestDatabase(t *testing.T, databaseURL string) {
+	t.Helper()
+	if databaseURL == "" {
+		return
+	}
+
+	ctx := context.Background()
+	lockPool, err := database.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("connect test database lock: %v", err)
+	}
+	if _, err := lockPool.Exec(ctx, `SELECT pg_advisory_lock(20260501)`); err != nil {
+		lockPool.Close()
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = lockPool.Exec(context.Background(), `SELECT pg_advisory_unlock(20260501)`)
+		lockPool.Close()
+	})
 }
 
 func testService(db *pgxpool.Pool) Service {
@@ -42,8 +64,16 @@ func insertGenerationTestUser(t *testing.T, ctx context.Context, db *pgxpool.Poo
 
 	var userID string
 	if err := db.QueryRow(ctx, `
-		INSERT INTO users (username, password_hash, role, status, credit_balance)
-		VALUES ($1, 'hash', $2, $3, $4)
+		INSERT INTO users (
+			username,
+			password_hash,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance
+		)
+		VALUES ($1, 'hash', $2, $3, $4, $4, $4)
 		RETURNING id::text
 	`, username, models.RoleUser, models.UserStatusActive, credits).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)
@@ -76,6 +106,20 @@ func countLedgerRows(t *testing.T, ctx context.Context, db *pgxpool.Pool, userID
 	return rows
 }
 
+func countUserLedgerRows(t *testing.T, ctx context.Context, db *pgxpool.Pool, userID, ledgerType string) int {
+	t.Helper()
+
+	var rows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1 AND type = $2
+	`, userID, ledgerType).Scan(&rows); err != nil {
+		t.Fatalf("count user ledger rows: %v", err)
+	}
+	return rows
+}
+
 func TestCreateTaskDebitsOneCredit(t *testing.T) {
 	ctx, db := setupGenerationTestDB(t)
 	service := testService(db)
@@ -102,8 +146,111 @@ func TestCreateTaskDebitsOneCredit(t *testing.T) {
 	if got := creditBalance(t, ctx, db, userID); got != 2 {
 		t.Fatalf("credit_balance = %d, want 2", got)
 	}
-	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerGenerationDebit); rows != 1 {
-		t.Fatalf("generation_debit ledger rows = %d, want 1", rows)
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationDebit); rows != 1 {
+		t.Fatalf("daily_free_generation_debit ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestCreateTaskDebitsDailyFreeCreditsBeforePaidCredits(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "free-first", 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 2,
+			daily_free_credit_balance = 2,
+			paid_credit_balance = 4,
+			credit_balance = 6
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{UserID: userID, Prompt: "a quiet lake", Ratio: "1:1"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	var freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `SELECT daily_free_credit_balance, paid_credit_balance, credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if freeBalance != 1 || paidBalance != 4 || total != 5 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 1,4,5", freeBalance, paidBalance, total)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationDebit); rows != 1 {
+		t.Fatalf("daily free debit ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestCreateTaskDebitsPaidCreditsWhenDailyFreeIsEmpty(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "paid-fallback", 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 2,
+			daily_free_credit_balance = 0,
+			paid_credit_balance = 3,
+			credit_balance = 3
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{UserID: userID, Prompt: "a bright studio", Ratio: "1:1"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	var freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `SELECT daily_free_credit_balance, paid_credit_balance, credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if freeBalance != 0 || paidBalance != 2 || total != 2 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 0,2,2", freeBalance, paidBalance, total)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerPaidGenerationDebit); rows != 1 {
+		t.Fatalf("paid debit ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestCreateTaskRefreshesStaleDailyFreeCreditsBeforeDebit(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "refresh-before-debit", 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 2,
+			daily_free_credit_balance = 0,
+			paid_credit_balance = 0,
+			credit_balance = 0,
+			last_daily_free_credit_refreshed_on = CURRENT_DATE - 1
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed stale wallets: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{UserID: userID, Prompt: "a fresh sketch", Ratio: "1:1"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	var freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `SELECT daily_free_credit_balance, paid_credit_balance, credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if freeBalance != 1 || paidBalance != 0 || total != 1 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 1,0,1", freeBalance, paidBalance, total)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationDebit); rows != 1 {
+		t.Fatalf("daily free debit ledger rows = %d, want 1", rows)
+	}
+	if rows := countUserLedgerRows(t, ctx, db, userID, models.LedgerDailyFreeRefresh); rows != 1 {
+		t.Fatalf("daily free refresh ledger rows = %d, want 1", rows)
 	}
 }
 
@@ -217,8 +364,8 @@ func TestFailTaskRefundsCredit(t *testing.T) {
 	if got := creditBalance(t, ctx, db, userID); got != 3 {
 		t.Fatalf("credit_balance = %d, want 3", got)
 	}
-	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerGenerationRefund); rows != 1 {
-		t.Fatalf("generation_refund ledger rows = %d, want 1", rows)
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationRefund); rows != 1 {
+		t.Fatalf("daily_free_generation_refund ledger rows = %d, want 1", rows)
 	}
 }
 
@@ -255,8 +402,8 @@ func TestSucceedTaskDoesNotRefundCredit(t *testing.T) {
 	if storedImagePath != imagePath {
 		t.Fatalf("image_path = %q, want %q", storedImagePath, imagePath)
 	}
-	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerGenerationRefund); rows != 0 {
-		t.Fatalf("generation_refund ledger rows = %d, want 0", rows)
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationRefund); rows != 0 {
+		t.Fatalf("daily_free_generation_refund ledger rows = %d, want 0", rows)
 	}
 }
 

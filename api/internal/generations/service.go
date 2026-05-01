@@ -70,7 +70,12 @@ func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, e
 	}
 	defer tx.Rollback(ctx)
 
-	balanceAfter, err := debitGenerationCredit(ctx, tx, input.UserID)
+	creditService := credits.Service{DB: s.DB}
+	if _, err := creditService.RefreshDailyFreeCreditsTx(ctx, tx, input.UserID); err != nil {
+		return Task{}, err
+	}
+
+	balanceAfter, walletType, ledgerType, err := debitGenerationCredit(ctx, tx, input.UserID)
 	if err != nil {
 		return Task{}, err
 	}
@@ -81,9 +86,9 @@ func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, e
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO credit_ledger (user_id, task_id, type, amount, balance_after, reason)
-		VALUES ($1::uuid, $2::uuid, $3, -1, $4, $5)
-	`, input.UserID, task.ID, models.LedgerGenerationDebit, balanceAfter, "generation task created"); err != nil {
+		INSERT INTO credit_ledger (user_id, task_id, type, wallet_type, amount, balance_after, reason)
+		VALUES ($1::uuid, $2::uuid, $3, $4, -1, $5, $6)
+	`, input.UserID, task.ID, ledgerType, walletType, balanceAfter, "generation task created"); err != nil {
 		return Task{}, fmt.Errorf("insert debit ledger: %w", err)
 	}
 
@@ -294,37 +299,54 @@ func validatePrompt(prompt string) (string, error) {
 	return trimmed, nil
 }
 
-func debitGenerationCredit(ctx context.Context, tx pgx.Tx, userID string) (int, error) {
+func debitGenerationCredit(ctx context.Context, tx pgx.Tx, userID string) (int, string, string, error) {
 	var balanceAfter int
 	err := tx.QueryRow(ctx, `
 		UPDATE users
-		SET credit_balance = credit_balance - 1,
+		SET daily_free_credit_balance = daily_free_credit_balance - 1,
+			credit_balance = daily_free_credit_balance - 1 + paid_credit_balance,
 			updated_at = now()
 		WHERE id = $1::uuid
 			AND status = $2
-			AND credit_balance >= 1
+			AND daily_free_credit_balance >= 1
 		RETURNING credit_balance
 	`, userID, models.UserStatusActive).Scan(&balanceAfter)
 	if err == nil {
-		return balanceAfter, nil
+		return balanceAfter, models.WalletDailyFree, models.LedgerDailyFreeGenerationDebit, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return 0, fmt.Errorf("debit generation credit: %w", err)
+		return 0, "", "", fmt.Errorf("debit daily free generation credit: %w", err)
+	}
+
+	err = tx.QueryRow(ctx, `
+		UPDATE users
+		SET paid_credit_balance = paid_credit_balance - 1,
+			credit_balance = daily_free_credit_balance + paid_credit_balance - 1,
+			updated_at = now()
+		WHERE id = $1::uuid
+			AND status = $2
+			AND paid_credit_balance >= 1
+		RETURNING credit_balance
+	`, userID, models.UserStatusActive).Scan(&balanceAfter)
+	if err == nil {
+		return balanceAfter, models.WalletPaid, models.LedgerPaidGenerationDebit, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", "", fmt.Errorf("debit paid generation credit: %w", err)
 	}
 
 	var status string
-	var balance int
-	err = tx.QueryRow(ctx, `SELECT status, credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&status, &balance)
+	err = tx.QueryRow(ctx, `SELECT status FROM users WHERE id = $1::uuid`, userID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNotFound
+		return 0, "", "", ErrNotFound
 	}
 	if err != nil {
-		return 0, fmt.Errorf("inspect user credit state: %w", err)
+		return 0, "", "", fmt.Errorf("inspect user credit state: %w", err)
 	}
 	if status != models.UserStatusActive {
-		return 0, ErrDisabledUser
+		return 0, "", "", ErrDisabledUser
 	}
-	return 0, ErrInsufficientCredits
+	return 0, "", "", ErrInsufficientCredits
 }
 
 func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model string) (Task, error) {
