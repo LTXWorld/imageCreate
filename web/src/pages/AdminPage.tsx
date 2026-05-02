@@ -23,6 +23,7 @@ type GenerationStatusFilter = AdminGenerationTask["status"] | "all";
 type CreditDraft = {
   amount: string;
   reason: string;
+  mode: "increase" | "decrease";
 };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
@@ -227,7 +228,9 @@ export function AdminPage({ user }: AdminPageProps) {
 
   async function handleCreditSubmit(event: FormEvent<HTMLFormElement>, target: AdminUser) {
     event.preventDefault();
-    const draft = creditDrafts[target.id] ?? { amount: "", reason: "" };
+    const draft = creditDrafts[target.id] ?? { amount: "", reason: "", mode: "increase" };
+    const numericAmount = Number(draft.amount);
+    const signedAmount = draft.mode === "decrease" ? -numericAmount : numericAmount;
 
     setBusy(`credits-${target.id}`);
     setError("");
@@ -237,7 +240,7 @@ export function AdminPage({ user }: AdminPageProps) {
       const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/credits`, {
         method: "POST",
         body: JSON.stringify({
-          amount: Number(draft.amount),
+          amount: signedAmount,
           reason: draft.reason.trim(),
         }),
       });
@@ -247,7 +250,7 @@ export function AdminPage({ user }: AdminPageProps) {
       }
       setCreditDrafts((current) => ({
         ...current,
-        [target.id]: { amount: "", reason: "" },
+        [target.id]: { amount: "", reason: "", mode: "increase" },
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "调整额度失败");
@@ -262,6 +265,7 @@ export function AdminPage({ user }: AdminPageProps) {
       [userID]: {
         amount: current[userID]?.amount ?? "",
         reason: current[userID]?.reason ?? "",
+        mode: current[userID]?.mode ?? "increase",
         ...patch,
       },
     }));
@@ -520,6 +524,7 @@ export function AdminPage({ user }: AdminPageProps) {
                 <tr>
                   <th>用户名</th>
                   <th>当前余额</th>
+                  <th>模式</th>
                   <th>调整值</th>
                   <th>原因</th>
                   <th>操作</th>
@@ -527,15 +532,27 @@ export function AdminPage({ user }: AdminPageProps) {
               </thead>
               <tbody>
                 {users.map((item) => {
-                  const draft = creditDrafts[item.id] ?? { amount: "", reason: "" };
+                  const draft = creditDrafts[item.id] ?? { amount: "", reason: "", mode: "increase" };
                   return (
                     <tr key={item.id}>
                       <td>{item.username}</td>
                       <td>{item.creditBalance} 点</td>
                       <td>
+                        <select
+                          aria-label="调整模式"
+                          className="table-input"
+                          onChange={(event) => updateCreditDraft(item.id, { mode: event.target.value as CreditDraft["mode"] })}
+                          value={draft.mode}
+                        >
+                          <option value="increase">增加</option>
+                          <option value="decrease">扣减</option>
+                        </select>
+                      </td>
+                      <td>
                         <input
                           aria-label={`调整 ${item.username} 的积分`}
                           className="table-input number-input"
+                          min="1"
                           onChange={(event) => updateCreditDraft(item.id, { amount: event.target.value })}
                           type="number"
                           value={draft.amount}

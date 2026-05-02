@@ -250,6 +250,30 @@ describe("AdminPage", () => {
     });
   });
 
+  test("submits a negative amount when credit adjustment is set to decrease", async () => {
+    const fetchMock = mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    const row = await screen.findByRole("row", { name: /alice/ });
+    await userEvent.selectOptions(within(row).getByLabelText("调整模式"), "decrease");
+    await userEvent.clear(within(row).getByLabelText("调整 alice 的积分"));
+    await userEvent.type(within(row).getByLabelText("调整 alice 的积分"), "3");
+    await userEvent.type(within(row).getByLabelText("调整 alice 的原因"), "活动回收");
+    await userEvent.click(within(row).getByRole("button", { name: "提交调整" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/users/user-1/credits",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ amount: -3, reason: "活动回收" }),
+        }),
+      );
+    });
+  });
+
   test("changes the current admin password from the security tab", async () => {
     const fetchMock = mockAdminFetch();
 

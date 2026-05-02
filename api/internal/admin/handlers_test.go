@@ -215,6 +215,102 @@ func TestAdjustCreditsUpdatesPaidWalletAndTotal(t *testing.T) {
 	}
 }
 
+func TestAdminCanSubtractPaidCredits(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "admin-paid-subtract", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "paid-subtract-target", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 5,
+			daily_free_credit_balance = 3,
+			paid_credit_balance = 5,
+			credit_balance = 8
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/credits", `{"amount":-2,"reason":"manual deduction"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	var freeBalance, paidBalance, total, ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND type = $2
+			AND wallet_type = $3
+			AND amount = -2
+			AND balance_after = 6
+			AND actor_user_id = $4::uuid
+	`, userID, models.LedgerPaidAdminAdjustment, models.WalletPaid, adminID).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count paid admin ledger: %v", err)
+	}
+	if freeBalance != 3 || paidBalance != 3 || total != 6 || ledgerRows != 1 {
+		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 3,3,6,1", freeBalance, paidBalance, total, ledgerRows)
+	}
+}
+
+func TestAdminSubtractCreditsRejectsPaidOverdraft(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "admin-paid-overdraft", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "paid-overdraft-target", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 5,
+			daily_free_credit_balance = 3,
+			paid_credit_balance = 1,
+			credit_balance = 4
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPost, "/api/admin/users/"+userID+"/credits", `{"amount":-2,"reason":"too much deduction"}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("status = %d body=%s, want 402", rec.Code, rec.Body.String())
+	}
+
+	var freeBalance, paidBalance, total, ledgerRows int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND type = $2
+	`, userID, models.LedgerPaidAdminAdjustment).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count paid admin ledger: %v", err)
+	}
+	if freeBalance != 3 || paidBalance != 1 || total != 4 || ledgerRows != 0 {
+		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 3,1,4,0", freeBalance, paidBalance, total, ledgerRows)
+	}
+}
+
 func TestAdminAdjustCreditsRejectsOverflow(t *testing.T) {
 	ctx, db, handler := setupAdminHandlerTest(t)
 	adminID := insertAdminTestUser(t, ctx, db, "overflow-credit-admin", models.RoleAdmin, 0)
