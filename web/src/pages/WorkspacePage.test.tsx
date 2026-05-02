@@ -120,6 +120,19 @@ describe("WorkspacePage", () => {
     });
   });
 
+  test("shows a clear message when prompt is too long", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({}));
+
+    render(<WorkspacePage user={user} />);
+
+    fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "a".repeat(2001) } });
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    expect(screen.getByText("已超出 1 个字符")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("提示词不能超过 2000 个字符");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("refreshes user credits after creating a generation", async () => {
     const onUserRefresh = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>

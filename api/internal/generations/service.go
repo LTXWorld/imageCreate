@@ -19,6 +19,7 @@ import (
 
 var (
 	ErrInvalidPrompt       = errors.New("invalid prompt")
+	ErrPromptTooLong       = errors.New("prompt too long")
 	ErrUnsupportedRatio    = errors.New("unsupported ratio")
 	ErrInsufficientCredits = credits.ErrInsufficientCredits
 	ErrActiveTaskExists    = errors.New("active task exists")
@@ -357,8 +358,11 @@ func scanTask(scanner taskScanner) (Task, error) {
 func validatePrompt(prompt string) (string, error) {
 	trimmed := strings.TrimSpace(prompt)
 	runeCount := utf8.RuneCountInString(trimmed)
-	if runeCount < 1 || runeCount > 2000 {
+	if runeCount < 1 {
 		return "", ErrInvalidPrompt
+	}
+	if runeCount > 2000 {
+		return "", ErrPromptTooLong
 	}
 	return trimmed, nil
 }

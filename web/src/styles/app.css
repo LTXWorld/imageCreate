@@ -336,6 +336,29 @@ button:disabled {
   font-weight: 600;
 }
 
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-counter,
+.field-help {
+  color: var(--color-ink-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.field-help {
+  margin: -4px 0 0;
+}
+
+.field-counter.over-limit,
+.field-help.over-limit {
+  color: #8f2f28;
+}
+
 .field input,
 .field select,
 .field textarea {

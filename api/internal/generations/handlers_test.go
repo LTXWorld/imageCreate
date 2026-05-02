@@ -85,6 +85,35 @@ func TestCreateGenerationReturnsQueuedTask(t *testing.T) {
 	}
 }
 
+func TestCreateGenerationRejectsLongPromptWithClearMessage(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-long-prompt", 3)
+
+	body := `{"prompt":"` + strings.Repeat("a", 2001) + `","ratio":"1:1"}`
+	req := authenticatedJSONRequest(t, http.MethodPost, "/api/generations", body, userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	var resp struct {
+		ErrorCode string `json:"error_code"`
+		Message   string `json:"message"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ErrorCode != "prompt_too_long" {
+		t.Fatalf("error_code = %q, want prompt_too_long", resp.ErrorCode)
+	}
+	const want = "提示词不能超过 2000 个字符"
+	if resp.Message != want {
+		t.Fatalf("message = %q, want %q", resp.Message, want)
+	}
+}
+
 func TestImageEndpointRejectsOtherUser(t *testing.T) {
 	ctx, db, storage, handler := setupGenerationHandlerTest(t)
 	userA := insertGenerationTestUser(t, ctx, db, "image-owner", 1)

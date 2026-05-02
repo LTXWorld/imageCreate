@@ -279,6 +279,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidPrompt):
 		writeError(w, http.StatusBadRequest, "invalid_prompt", "请填写提示词")
+	case errors.Is(err, ErrPromptTooLong):
+		writeError(w, http.StatusBadRequest, "prompt_too_long", "提示词不能超过 2000 个字符")
 	case errors.Is(err, ErrUnsupportedRatio):
 		writeError(w, http.StatusBadRequest, "unsupported_ratio", "不支持的图片比例")
 	case errors.Is(err, ErrInsufficientCredits):

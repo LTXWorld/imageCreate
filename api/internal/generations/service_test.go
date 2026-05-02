@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -252,6 +253,32 @@ func TestCreateTaskRejectsInsufficientCredits(t *testing.T) {
 	}
 	if taskRows != 0 {
 		t.Fatalf("task rows = %d, want 0", taskRows)
+	}
+}
+
+func TestCreateTaskRejectsLongPrompt(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "long-prompt", 3)
+
+	_, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID: userID,
+		Prompt: strings.Repeat("a", 2001),
+		Ratio:  "1:1",
+	})
+	if !errors.Is(err, ErrPromptTooLong) {
+		t.Fatalf("create task error = %v, want ErrPromptTooLong", err)
+	}
+
+	var taskRows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM generation_tasks WHERE user_id = $1`, userID).Scan(&taskRows); err != nil {
+		t.Fatalf("count task rows: %v", err)
+	}
+	if taskRows != 0 {
+		t.Fatalf("task rows = %d, want 0", taskRows)
+	}
+	if got := creditBalance(t, ctx, db, userID); got != 3 {
+		t.Fatalf("credit_balance = %d, want 3", got)
 	}
 }
 

@@ -19,6 +19,7 @@ const taskPollingIntervalMS = 5000;
 const progressTickIntervalMS = 1000;
 const queuedProgressDurationMS = 90_000;
 const runningProgressDurationMS = 180_000;
+const promptMaxLength = 2000;
 
 type GenerationProgressState = {
   percent: number;
@@ -49,6 +50,10 @@ function elapsedTaskMilliseconds(task: GenerationTask, now: number) {
 function progressBetween(elapsedMS: number, durationMS: number, start: number, end: number) {
   const ratio = clamp(elapsedMS / durationMS, 0, 1);
   return Math.round(start + (end - start) * ratio);
+}
+
+function promptLength(value: string) {
+  return Array.from(value.trim()).length;
 }
 
 function getGenerationProgress(task: GenerationTask, now: number): GenerationProgressState {
@@ -204,6 +209,10 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
       setError("请填写提示词");
       return;
     }
+    if (promptLength(currentPrompt) > promptMaxLength) {
+      setError(`提示词不能超过 ${promptMaxLength} 个字符`);
+      return;
+    }
 
     setError("");
     setSubmitting(true);
@@ -242,6 +251,8 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
 
   const disabled = submitting || canceling || isActiveTask(currentTask);
   const failureDetail = currentTask ? safeFailureDetail(currentTask) : "";
+  const currentPromptLength = promptLength(prompt);
+  const isPromptTooLong = currentPromptLength > promptMaxLength;
 
   return (
     <section className="workspace-page" aria-labelledby="workspace-title">
@@ -270,8 +281,15 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
           </p>
 
           <label className="field">
-            <span>提示词</span>
+            <span className="field-label-row">
+              <span>提示词</span>
+              <span className={isPromptTooLong ? "field-counter over-limit" : "field-counter"}>
+                {currentPromptLength}/{promptMaxLength}
+              </span>
+            </span>
             <textarea
+              aria-label="提示词"
+              aria-describedby="prompt-counter"
               name="prompt"
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="描述你想生成的画面"
@@ -280,6 +298,12 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
               value={prompt}
             />
           </label>
+          <p
+            className={isPromptTooLong ? "field-help over-limit" : "field-help"}
+            id="prompt-counter"
+          >
+            {isPromptTooLong ? `已超出 ${currentPromptLength - promptMaxLength} 个字符` : "最多 2000 个字符"}
+          </p>
 
           <fieldset className="ratio-control">
             <legend>画面比例</legend>
