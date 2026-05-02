@@ -605,6 +605,7 @@ export function AdminPage({ user }: AdminPageProps) {
                   <th>当前余额</th>
                   <th>今日免费</th>
                   <th>每日上限</th>
+                  <th>今日补额</th>
                   <th>模式</th>
                   <th>调整值</th>
                   <th>原因</th>
@@ -685,6 +686,7 @@ export function AdminPage({ user }: AdminPageProps) {
                           aria-label={`调整 ${item.username} 的原因`}
                           className="table-input"
                           onChange={(event) => updateCreditDraft(item.id, { reason: event.target.value })}
+                          type="text"
                           value={draft.reason}
                         />
                       </td>

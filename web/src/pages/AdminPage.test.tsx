@@ -282,6 +282,30 @@ describe("AdminPage", () => {
     });
   });
 
+  test("keeps credit management headers aligned with row controls", async () => {
+    mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
+    const row = await screen.findByRole("row", { name: /alice/ });
+
+    expect(headers).toEqual([
+      "用户名",
+      "当前余额",
+      "今日免费",
+      "每日上限",
+      "今日补额",
+      "模式",
+      "调整值",
+      "原因",
+      "操作",
+    ]);
+    expect(within(row).getAllByRole("cell")).toHaveLength(headers.length);
+    expect(within(row).getByLabelText("调整 alice 的原因")).toHaveAttribute("type", "text");
+  });
+
   test("updates a user's daily free limit from the credit tab", async () => {
     const fetchMock = mockAdminFetch();
 
