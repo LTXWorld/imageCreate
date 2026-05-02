@@ -17,6 +17,15 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
+  const refreshCurrentUser = useCallback(async () => {
+    const body = await api<unknown>("/api/auth/me");
+    const { user: currentUser } = normalizeAuthResponse(
+      body as Parameters<typeof normalizeAuthResponse>[0],
+    );
+    setUser(currentUser);
+    return currentUser;
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -92,7 +101,13 @@ export function App() {
       onAuthenticated={handleAuthenticated}
       onUnauthenticated={handleUnauthenticated}
     >
-      {user ? <WorkspacePage user={user} onHistoryClick={() => setView("history")} /> : null}
+      {user ? (
+        <WorkspacePage
+          user={user}
+          onHistoryClick={() => setView("history")}
+          onUserRefresh={refreshCurrentUser}
+        />
+      ) : null}
     </RequireAuth>
   ) : (
     <LoginPage onLogin={handleAuthenticated} onRegisterClick={() => setView("register")} />

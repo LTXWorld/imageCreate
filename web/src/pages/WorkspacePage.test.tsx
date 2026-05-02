@@ -87,6 +87,31 @@ describe("WorkspacePage", () => {
     });
   });
 
+  test("refreshes user credits after creating a generation", async () => {
+    const onUserRefresh = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-refresh-create",
+          prompt: "一只杯子",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "queued",
+          created_at: "2026-04-30T08:00:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} onUserRefresh={onUserRefresh} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "一只杯子");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    await waitFor(() => {
+      expect(onUserRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
   test("polls active tasks every five seconds", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.spyOn(globalThis, "fetch")
@@ -139,6 +164,56 @@ describe("WorkspacePage", () => {
       "/api/generations/task-2",
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  test("refreshes user credits when polling reaches a final task status", async () => {
+    vi.useFakeTimers();
+    const onUserRefresh = vi.fn();
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          task: {
+            id: "task-refresh-final",
+            prompt: "山谷",
+            ratio: "16:9",
+            size: "1024x576",
+            status: "queued",
+            created_at: "2026-04-30T08:00:00Z",
+          },
+        }),
+      )
+      .mockImplementation(() =>
+        jsonResponse({
+          task: {
+            id: "task-refresh-final",
+            prompt: "山谷",
+            ratio: "16:9",
+            size: "1024x576",
+            status: "failed",
+            error_code: "timeout",
+            message: "生成超时，本次额度已退回，请稍后重试。",
+            created_at: "2026-04-30T08:00:00Z",
+            completed_at: "2026-04-30T08:01:00Z",
+          },
+        }),
+      );
+
+    render(<WorkspacePage user={user} onUserRefresh={onUserRefresh} />);
+
+    fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "山谷" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onUserRefresh).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+    });
+
+    expect(onUserRefresh).toHaveBeenCalledTimes(2);
   });
 
   test("shows a progress bar while a queued task is waiting", async () => {

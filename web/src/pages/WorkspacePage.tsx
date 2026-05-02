@@ -29,6 +29,7 @@ type GenerationProgressState = {
 type WorkspacePageProps = {
   user: User;
   onHistoryClick?: () => void;
+  onUserRefresh?: () => void | Promise<unknown>;
 };
 
 function isActiveTask(task: GenerationTask | null) {
@@ -146,7 +147,7 @@ function PrivateSupportCard() {
   );
 }
 
-export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
+export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: WorkspacePageProps) {
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
   const [submitting, setSubmitting] = useState(false);
@@ -154,20 +155,32 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
   const [progressNow, setProgressNow] = useState(() => Date.now());
   const [error, setError] = useState("");
 
+  function refreshUserCredits() {
+    void Promise.resolve(onUserRefresh?.()).catch((err) => {
+      setError(err instanceof Error ? err.message : "刷新额度失败");
+    });
+  }
+
   useEffect(() => {
     if (!currentTask || !activeStatuses.has(currentTask.status)) return undefined;
 
     const taskId = currentTask.id;
     const timer = window.setInterval(() => {
       api<unknown>(`/api/generations/${taskId}`)
-        .then((body) => setCurrentTask(normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0])))
+        .then((body) => {
+          const nextTask = normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0]);
+          setCurrentTask(nextTask);
+          if (!activeStatuses.has(nextTask.status)) {
+            refreshUserCredits();
+          }
+        })
         .catch((err) => {
           setError(err instanceof Error ? err.message : "查询任务失败");
         });
     }, taskPollingIntervalMS);
 
     return () => window.clearInterval(timer);
-  }, [currentTask]);
+  }, [currentTask, onUserRefresh]);
 
   useEffect(() => {
     if (!currentTask || !activeStatuses.has(currentTask.status)) return undefined;
@@ -194,6 +207,7 @@ export function WorkspacePage({ user, onHistoryClick }: WorkspacePageProps) {
         body: JSON.stringify({ prompt: trimmedPrompt, ratio }),
       });
       setCurrentTask(normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0]));
+      refreshUserCredits();
     } catch (err) {
       setError(err instanceof Error ? err.message : "提交生成失败");
     } finally {
