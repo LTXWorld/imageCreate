@@ -121,7 +121,7 @@ describe("WorkspacePage", () => {
   });
 
   test("shows a clear message when prompt is too long", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({}));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() => jsonResponse({}));
 
     render(<WorkspacePage user={user} />);
 
