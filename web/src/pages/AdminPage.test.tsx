@@ -192,6 +192,22 @@ function mockAdminFetch() {
         },
       });
     }
+    if (path === "/api/admin/users/user-1/daily-free-balance" && init?.method === "PATCH") {
+      return jsonResponse({
+        user: {
+          id: "user-1",
+          username: "alice",
+          role: "user",
+          status: "active",
+          credit_balance: 11,
+          daily_free_credit_limit: 5,
+          daily_free_credit_balance: 6,
+          paid_credit_balance: 5,
+          created_at: "2026-04-30T08:00:00Z",
+          updated_at: "2026-04-30T09:40:00Z",
+        },
+      });
+    }
     if (path === "/api/admin/password" && init?.method === "POST") {
       return jsonResponse({ ok: true });
     }
@@ -287,6 +303,29 @@ describe("AdminPage", () => {
       );
     });
     expect(await screen.findByText("3/7")).toBeInTheDocument();
+  });
+
+  test("tops up today's free balance from the credit tab", async () => {
+    const fetchMock = mockAdminFetch();
+
+    render(<AdminPage user={adminUser} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    const row = await screen.findByRole("row", { name: /alice/ });
+    await userEvent.clear(within(row).getByLabelText("补今日免费额度"));
+    await userEvent.type(within(row).getByLabelText("补今日免费额度"), "3");
+    await userEvent.click(within(row).getByRole("button", { name: "补额度" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/users/user-1/daily-free-balance",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ amount: 3 }),
+        }),
+      );
+    });
+    expect(await screen.findByText("6/5")).toBeInTheDocument();
   });
 
   test("submits a negative amount when credit adjustment is set to decrease", async () => {

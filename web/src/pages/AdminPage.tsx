@@ -27,6 +27,7 @@ type CreditDraft = {
 };
 
 type DailyFreeLimitDraft = string;
+type DailyFreeBalanceDraft = string;
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "users", label: "用户" },
@@ -114,6 +115,7 @@ export function AdminPage({ user }: AdminPageProps) {
   const [inviteCredits, setInviteCredits] = useState("5");
   const [creditDrafts, setCreditDrafts] = useState<Record<string, CreditDraft>>({});
   const [dailyFreeLimitDrafts, setDailyFreeLimitDrafts] = useState<Record<string, DailyFreeLimitDraft>>({});
+  const [dailyFreeBalanceDrafts, setDailyFreeBalanceDrafts] = useState<Record<string, DailyFreeBalanceDraft>>({});
   const [ownPasswordDraft, setOwnPasswordDraft] = useState({
     currentPassword: "",
     newPassword: "",
@@ -292,6 +294,36 @@ export function AdminPage({ user }: AdminPageProps) {
     }
   }
 
+  async function handleDailyFreeBalanceSubmit(event: FormEvent<HTMLFormElement>, target: AdminUser) {
+    event.preventDefault();
+    const draft = dailyFreeBalanceDrafts[target.id] ?? "";
+
+    setBusy(`daily-free-balance-${target.id}`);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/daily-free-balance`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          amount: Number(draft),
+        }),
+      });
+      const [updated] = normalizeAdminUsers({ users: [body.user] });
+      if (updated) {
+        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      setDailyFreeBalanceDrafts((current) => ({
+        ...current,
+        [target.id]: "",
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "补今日免费额度失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
   function updateCreditDraft(userID: string, patch: Partial<CreditDraft>) {
     setCreditDrafts((current) => ({
       ...current,
@@ -306,6 +338,13 @@ export function AdminPage({ user }: AdminPageProps) {
 
   function updateDailyFreeLimitDraft(userID: string, value: string) {
     setDailyFreeLimitDrafts((current) => ({
+      ...current,
+      [userID]: value,
+    }));
+  }
+
+  function updateDailyFreeBalanceDraft(userID: string, value: string) {
+    setDailyFreeBalanceDrafts((current) => ({
       ...current,
       [userID]: value,
     }));
@@ -565,6 +604,7 @@ export function AdminPage({ user }: AdminPageProps) {
                   <th>用户名</th>
                   <th>当前余额</th>
                   <th>今日免费</th>
+                  <th>每日上限</th>
                   <th>模式</th>
                   <th>调整值</th>
                   <th>原因</th>
@@ -575,22 +615,12 @@ export function AdminPage({ user }: AdminPageProps) {
                 {users.map((item) => {
                   const draft = creditDrafts[item.id] ?? { amount: "", reason: "", mode: "increase" };
                   const dailyFreeLimitDraft = dailyFreeLimitDrafts[item.id] ?? String(item.dailyFreeCreditLimit);
+                  const dailyFreeBalanceDraft = dailyFreeBalanceDrafts[item.id] ?? "";
                   return (
                     <tr key={item.id}>
                       <td>{item.username}</td>
                       <td>{item.creditBalance} 点</td>
                       <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
-                      <td>
-                        <select
-                          aria-label="调整模式"
-                          className="table-input"
-                          onChange={(event) => updateCreditDraft(item.id, { mode: event.target.value as CreditDraft["mode"] })}
-                          value={draft.mode}
-                        >
-                          <option value="increase">增加</option>
-                          <option value="decrease">扣减</option>
-                        </select>
-                      </td>
                       <td>
                         <form onSubmit={(event) => void handleDailyFreeLimitSubmit(event, item)}>
                           <input
@@ -609,6 +639,36 @@ export function AdminPage({ user }: AdminPageProps) {
                             更新上限
                           </button>
                         </form>
+                      </td>
+                      <td>
+                        <form onSubmit={(event) => void handleDailyFreeBalanceSubmit(event, item)}>
+                          <input
+                            aria-label="补今日免费额度"
+                            className="table-input number-input"
+                            min="1"
+                            onChange={(event) => updateDailyFreeBalanceDraft(item.id, event.target.value)}
+                            type="number"
+                            value={dailyFreeBalanceDraft}
+                          />
+                          <button
+                            className="secondary-button compact-button"
+                            disabled={busy === `daily-free-balance-${item.id}`}
+                            type="submit"
+                          >
+                            补额度
+                          </button>
+                        </form>
+                      </td>
+                      <td>
+                        <select
+                          aria-label="调整模式"
+                          className="table-input"
+                          onChange={(event) => updateCreditDraft(item.id, { mode: event.target.value as CreditDraft["mode"] })}
+                          value={draft.mode}
+                        >
+                          <option value="increase">增加</option>
+                          <option value="decrease">扣减</option>
+                        </select>
                       </td>
                       <td>
                         <input

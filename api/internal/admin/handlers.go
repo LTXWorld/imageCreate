@@ -327,6 +327,59 @@ func (h Handlers) UpdateDailyFreeLimit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]userResponse{"user": user})
 }
 
+func (h Handlers) TopUpDailyFreeBalance(w http.ResponseWriter, r *http.Request) {
+	actor, ok := auth.CurrentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "请先登录")
+		return
+	}
+
+	userID, ok := validRouteUUID(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Amount int `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if req.Amount <= 0 || !isPostgresInteger(req.Amount) {
+		writeError(w, http.StatusBadRequest, "今日免费额度无效")
+		return
+	}
+
+	tx, err := h.DB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	user, err := topUpDailyFreeBalance(r.Context(), tx, userID, req.Amount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "用户不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+
+	if err := insertAuditLog(r.Context(), tx, actor.ID, userID, "top_up_daily_free_credit_balance", map[string]any{"amount": req.Amount}); err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "服务器错误")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]userResponse{"user": user})
+}
+
 func (h Handlers) ListInvites(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(r.Context(), `
 		SELECT id::text, code, initial_credits, status, COALESCE(created_by::text, ''), COALESCE(used_by::text, ''), used_at, created_at
@@ -602,6 +655,41 @@ func updateDailyFreeLimit(ctx context.Context, tx pgx.Tx, userID string, dailyFr
 			created_at,
 			updated_at
 	`, userID, dailyFreeCreditLimit).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Role,
+		&user.Status,
+		&user.CreditBalance,
+		&user.DailyFreeCreditLimit,
+		&user.DailyFreeCreditBalance,
+		&user.PaidCreditBalance,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	return user, err
+}
+
+func topUpDailyFreeBalance(ctx context.Context, tx pgx.Tx, userID string, amount int) (userResponse, error) {
+	var user userResponse
+	err := tx.QueryRow(ctx, `
+		UPDATE users
+		SET daily_free_credit_balance = (daily_free_credit_balance::bigint + $2::bigint)::integer,
+			credit_balance = (daily_free_credit_balance::bigint + paid_credit_balance::bigint + $2::bigint)::integer,
+			updated_at = now()
+		WHERE id = $1::uuid
+			AND daily_free_credit_balance::bigint + $2::bigint BETWEEN 0 AND 2147483647
+			AND daily_free_credit_balance::bigint + paid_credit_balance::bigint + $2::bigint BETWEEN 0 AND 2147483647
+		RETURNING id::text,
+			username,
+			role,
+			status,
+			credit_balance,
+			daily_free_credit_limit,
+			daily_free_credit_balance,
+			paid_credit_balance,
+			created_at,
+			updated_at
+	`, userID, amount).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Role,
