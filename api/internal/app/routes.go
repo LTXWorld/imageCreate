@@ -39,6 +39,7 @@ func (a *App) Routes() http.Handler {
 		r.Get("/users", a.adminHandlers.ListUsers)
 		r.Post("/password", a.adminHandlers.ChangeOwnPassword)
 		r.Patch("/users/{id}/status", a.adminHandlers.UpdateUserStatus)
+		r.Patch("/users/{id}/daily-free-limit", a.adminHandlers.UpdateDailyFreeLimit)
 		r.Post("/users/{id}/credits", a.adminHandlers.AdjustCredits)
 		r.Post("/users/{id}/password", a.adminHandlers.ResetUserPassword)
 		r.Get("/invites", a.adminHandlers.ListInvites)

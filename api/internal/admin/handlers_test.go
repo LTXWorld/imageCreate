@@ -42,6 +42,7 @@ func setupAdminHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, http.H
 		r.Post("/password", handlers.ChangeOwnPassword)
 		r.Patch("/users/{id}/status", handlers.UpdateUserStatus)
 		r.Post("/users/{id}/credits", handlers.AdjustCredits)
+		r.Patch("/users/{id}/daily-free-limit", handlers.UpdateDailyFreeLimit)
 		r.Post("/users/{id}/password", handlers.ResetUserPassword)
 		r.Get("/invites", handlers.ListInvites)
 		r.Post("/invites", handlers.CreateInvite)
@@ -212,6 +213,110 @@ func TestAdjustCreditsUpdatesPaidWalletAndTotal(t *testing.T) {
 	}
 	if freeBalance != 1 || paidBalance != 5 || total != 6 || ledgerRows != 1 {
 		t.Fatalf("free=%d paid=%d total=%d ledgerRows=%d, want 1,5,6,1", freeBalance, paidBalance, total, ledgerRows)
+	}
+}
+
+func TestAdminCanUpdateDailyFreeLimit(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "daily-free-limit-admin", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "daily-free-limit-user", models.RoleUser, 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 5,
+			daily_free_credit_balance = 3,
+			paid_credit_balance = 4,
+			credit_balance = 7
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPatch, "/api/admin/users/"+userID+"/daily-free-limit", `{"daily_free_credit_limit":7}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var freeLimit, freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_limit, daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeLimit, &freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query user: %v", err)
+	}
+	if freeLimit != 7 || freeBalance != 3 || paidBalance != 4 || total != 7 {
+		t.Fatalf("limit=%d free=%d paid=%d total=%d, want 7,3,4,7", freeLimit, freeBalance, paidBalance, total)
+	}
+
+	var auditRows int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM audit_logs
+		WHERE actor_user_id = $1
+			AND target_user_id = $2
+			AND action = 'update_daily_free_credit_limit'
+	`, adminID, userID).Scan(&auditRows); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("audit rows = %d, want 1", auditRows)
+	}
+}
+
+func TestAdminCanSetDailyFreeLimitToZero(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "daily-free-limit-zero-admin", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "daily-free-limit-zero-user", models.RoleUser, 0)
+	if _, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 5,
+			daily_free_credit_balance = 3,
+			paid_credit_balance = 2,
+			credit_balance = 5
+		WHERE id = $1::uuid
+	`, userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPatch, "/api/admin/users/"+userID+"/daily-free-limit", `{"daily_free_credit_limit":0}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var freeLimit, freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `
+		SELECT daily_free_credit_limit, daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
+		WHERE id = $1::uuid
+	`, userID).Scan(&freeLimit, &freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query user: %v", err)
+	}
+	if freeLimit != 0 || freeBalance != 3 || paidBalance != 2 || total != 5 {
+		t.Fatalf("limit=%d free=%d paid=%d total=%d, want 0,3,2,5", freeLimit, freeBalance, paidBalance, total)
+	}
+}
+
+func TestAdminDailyFreeLimitRejectsNegativeValue(t *testing.T) {
+	ctx, db, handler := setupAdminHandlerTest(t)
+	adminID := insertAdminTestUser(t, ctx, db, "daily-free-limit-negative-admin", models.RoleAdmin, 0)
+	userID := insertAdminTestUser(t, ctx, db, "daily-free-limit-negative-user", models.RoleUser, 0)
+
+	req := authenticatedAdminJSONRequest(t, http.MethodPatch, "/api/admin/users/"+userID+"/daily-free-limit", `{"daily_free_credit_limit":-1}`, adminID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 

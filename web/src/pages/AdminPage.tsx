@@ -26,6 +26,8 @@ type CreditDraft = {
   mode: "increase" | "decrease";
 };
 
+type DailyFreeLimitDraft = string;
+
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "users", label: "用户" },
   { id: "invites", label: "邀请码" },
@@ -111,6 +113,7 @@ export function AdminPage({ user }: AdminPageProps) {
   const [inviteCode, setInviteCode] = useState("");
   const [inviteCredits, setInviteCredits] = useState("5");
   const [creditDrafts, setCreditDrafts] = useState<Record<string, CreditDraft>>({});
+  const [dailyFreeLimitDrafts, setDailyFreeLimitDrafts] = useState<Record<string, DailyFreeLimitDraft>>({});
   const [ownPasswordDraft, setOwnPasswordDraft] = useState({
     currentPassword: "",
     newPassword: "",
@@ -259,6 +262,36 @@ export function AdminPage({ user }: AdminPageProps) {
     }
   }
 
+  async function handleDailyFreeLimitSubmit(event: FormEvent<HTMLFormElement>, target: AdminUser) {
+    event.preventDefault();
+    const draft = dailyFreeLimitDrafts[target.id] ?? "";
+
+    setBusy(`daily-free-limit-${target.id}`);
+    setError("");
+    setNotice("");
+
+    try {
+      const body = await api<{ user: unknown }>(`/api/admin/users/${target.id}/daily-free-limit`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          daily_free_credit_limit: Number(draft),
+        }),
+      });
+      const [updated] = normalizeAdminUsers({ users: [body.user] });
+      if (updated) {
+        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      setDailyFreeLimitDrafts((current) => ({
+        ...current,
+        [target.id]: "",
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新每日免费上限失败");
+    } finally {
+      setBusy("");
+    }
+  }
+
   function updateCreditDraft(userID: string, patch: Partial<CreditDraft>) {
     setCreditDrafts((current) => ({
       ...current,
@@ -268,6 +301,13 @@ export function AdminPage({ user }: AdminPageProps) {
         mode: current[userID]?.mode ?? "increase",
         ...patch,
       },
+    }));
+  }
+
+  function updateDailyFreeLimitDraft(userID: string, value: string) {
+    setDailyFreeLimitDrafts((current) => ({
+      ...current,
+      [userID]: value,
     }));
   }
 
@@ -524,6 +564,7 @@ export function AdminPage({ user }: AdminPageProps) {
                 <tr>
                   <th>用户名</th>
                   <th>当前余额</th>
+                  <th>今日免费</th>
                   <th>模式</th>
                   <th>调整值</th>
                   <th>原因</th>
@@ -533,10 +574,12 @@ export function AdminPage({ user }: AdminPageProps) {
               <tbody>
                 {users.map((item) => {
                   const draft = creditDrafts[item.id] ?? { amount: "", reason: "", mode: "increase" };
+                  const dailyFreeLimitDraft = dailyFreeLimitDrafts[item.id] ?? String(item.dailyFreeCreditLimit);
                   return (
                     <tr key={item.id}>
                       <td>{item.username}</td>
                       <td>{item.creditBalance} 点</td>
+                      <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
                       <td>
                         <select
                           aria-label="调整模式"
@@ -547,6 +590,25 @@ export function AdminPage({ user }: AdminPageProps) {
                           <option value="increase">增加</option>
                           <option value="decrease">扣减</option>
                         </select>
+                      </td>
+                      <td>
+                        <form onSubmit={(event) => void handleDailyFreeLimitSubmit(event, item)}>
+                          <input
+                            aria-label="每日免费上限"
+                            className="table-input number-input"
+                            min="0"
+                            onChange={(event) => updateDailyFreeLimitDraft(item.id, event.target.value)}
+                            type="number"
+                            value={dailyFreeLimitDraft}
+                          />
+                          <button
+                            className="secondary-button compact-button"
+                            disabled={busy === `daily-free-limit-${item.id}`}
+                            type="submit"
+                          >
+                            更新上限
+                          </button>
+                        </form>
                       </td>
                       <td>
                         <input
