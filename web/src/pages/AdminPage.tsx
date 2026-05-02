@@ -15,6 +15,7 @@ import {
 
 type AdminPageProps = {
   user: User;
+  onUserUpdate?: (user: User) => void;
 };
 
 type AdminTab = "users" | "invites" | "credits" | "security" | "audit";
@@ -103,7 +104,7 @@ function summarizeGenerationTasks(tasks: AdminGenerationTask[]) {
   };
 }
 
-export function AdminPage({ user }: AdminPageProps) {
+export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [invites, setInvites] = useState<AdminInvite[]>([]);
@@ -134,6 +135,13 @@ export function AdminPage({ user }: AdminPageProps) {
     return matchesUser && matchesStatus;
   });
   const generationSummary = summarizeGenerationTasks(filteredGenerationTasks);
+
+  function applyUpdatedUser(updated: AdminUser) {
+    setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+    if (updated.id === user.id) {
+      onUserUpdate?.(updated);
+    }
+  }
 
   useEffect(() => {
     if (user.role !== "admin") {
@@ -222,7 +230,7 @@ export function AdminPage({ user }: AdminPageProps) {
       });
       const [updated] = normalizeAdminUsers({ users: [body.user] });
       if (updated) {
-        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+        applyUpdatedUser(updated);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "更新用户状态失败");
@@ -251,7 +259,7 @@ export function AdminPage({ user }: AdminPageProps) {
       });
       const [updated] = normalizeAdminUsers({ users: [body.user] });
       if (updated) {
-        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+        applyUpdatedUser(updated);
       }
       setCreditDrafts((current) => ({
         ...current,
@@ -281,7 +289,7 @@ export function AdminPage({ user }: AdminPageProps) {
       });
       const [updated] = normalizeAdminUsers({ users: [body.user] });
       if (updated) {
-        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+        applyUpdatedUser(updated);
       }
       setDailyFreeLimitDrafts((current) => ({
         ...current,
@@ -311,7 +319,7 @@ export function AdminPage({ user }: AdminPageProps) {
       });
       const [updated] = normalizeAdminUsers({ users: [body.user] });
       if (updated) {
-        setUsers((current) => current.map((item) => item.id === updated.id ? updated : item));
+        applyUpdatedUser(updated);
       }
       setDailyFreeBalanceDrafts((current) => ({
         ...current,

@@ -85,7 +85,7 @@ export function App() {
       onAuthenticated={handleAuthenticated}
       onUnauthenticated={handleUnauthenticated}
     >
-      {user ? <AdminPage user={user} /> : null}
+      {user ? <AdminPage user={user} onUserUpdate={setUser} /> : null}
     </RequireAuth>
   ) : view === "history" ? (
     <RequireAuth
