@@ -196,8 +196,14 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt) return;
+    const formData = new FormData(event.currentTarget);
+    const currentPrompt = String(formData.get("prompt") ?? "");
+    const trimmedPrompt = currentPrompt.trim();
+    setPrompt(currentPrompt);
+    if (!trimmedPrompt) {
+      setError("请填写提示词");
+      return;
+    }
 
     setError("");
     setSubmitting(true);

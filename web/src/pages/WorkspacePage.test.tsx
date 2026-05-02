@@ -87,6 +87,39 @@ describe("WorkspacePage", () => {
     });
   });
 
+  test("submits prompt value that was filled without a React change event", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() =>
+        jsonResponse({
+          task: {
+            id: "task-dom-prompt",
+            prompt: "浏览器填充的提示词",
+            ratio: "1:1",
+            size: "1024x1024",
+            status: "queued",
+            created_at: "2026-04-30T08:00:00Z",
+          },
+        }),
+      );
+
+    render(<WorkspacePage user={user} />);
+
+    const promptInput = screen.getByLabelText("提示词") as HTMLTextAreaElement;
+    promptInput.value = "浏览器填充的提示词";
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/generations",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ prompt: "浏览器填充的提示词", ratio: "1:1" }),
+        }),
+      );
+    });
+  });
+
   test("refreshes user credits after creating a generation", async () => {
     const onUserRefresh = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
