@@ -347,6 +347,96 @@ func TestFailTaskRefundsCredit(t *testing.T) {
 	}
 }
 
+func TestCancelTaskRefundsCreditAndReleasesActiveSlot(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "cancel-active", 2)
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID: userID,
+		Prompt: "draw the wrong prompt",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	canceled, err := service.CancelTaskForUser(ctx, userID, task.ID)
+	if err != nil {
+		t.Fatalf("cancel task: %v", err)
+	}
+	if canceled.Status != models.TaskCanceled {
+		t.Fatalf("canceled task status = %q, want %q", canceled.Status, models.TaskCanceled)
+	}
+	if !canceled.CompletedAt.Valid {
+		t.Fatal("canceled task completed_at valid = false, want true")
+	}
+	if got := creditBalance(t, ctx, db, userID); got != 2 {
+		t.Fatalf("credit_balance = %d, want 2", got)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationRefund); rows != 1 {
+		t.Fatalf("daily_free_generation_refund ledger rows = %d, want 1", rows)
+	}
+
+	if _, err := service.CreateTask(ctx, CreateTaskInput{UserID: userID, Prompt: "draw the corrected prompt", Ratio: "1:1"}); err != nil {
+		t.Fatalf("create task after cancellation: %v", err)
+	}
+}
+
+func TestCancelTaskRejectsTerminalTask(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "cancel-terminal", 2)
+
+	var taskID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
+		VALUES ($1, 'completed task', '1024x1024', $2, 'test-image-model')
+		RETURNING id::text
+	`, userID, models.TaskSucceeded).Scan(&taskID); err != nil {
+		t.Fatalf("insert succeeded task: %v", err)
+	}
+
+	_, err := service.CancelTaskForUser(ctx, userID, taskID)
+	if !errors.Is(err, ErrTaskNotActive) {
+		t.Fatalf("cancel task error = %v, want ErrTaskNotActive", err)
+	}
+}
+
+func TestCancelTaskRejectsRunningTaskWithoutRefund(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "cancel-running", 2)
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID: userID,
+		Prompt: "draw a prompt already sent upstream",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE generation_tasks
+		SET status = $2,
+			started_at = now()
+		WHERE id = $1::uuid
+	`, task.ID, models.TaskRunning); err != nil {
+		t.Fatalf("mark task running: %v", err)
+	}
+
+	_, err = service.CancelTaskForUser(ctx, userID, task.ID)
+	if !errors.Is(err, ErrTaskAlreadyStarted) {
+		t.Fatalf("cancel task error = %v, want ErrTaskAlreadyStarted", err)
+	}
+	if got := creditBalance(t, ctx, db, userID); got != 1 {
+		t.Fatalf("credit_balance = %d, want 1", got)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationRefund); rows != 0 {
+		t.Fatalf("daily_free_generation_refund ledger rows = %d, want 0", rows)
+	}
+}
+
 func TestSucceedTaskDoesNotRefundCredit(t *testing.T) {
 	ctx, db := setupGenerationTestDB(t)
 	service := testService(db)

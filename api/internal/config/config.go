@@ -20,6 +20,7 @@ type Config struct {
 	OpenAIImageModel     string
 	OpenAIRequestTimeout time.Duration
 	WorkerConcurrency    int
+	WorkerClaimDelay     time.Duration
 	ImageStorageDir      string
 	ImageRetentionDays   int
 	ImageSizePresets     map[string]string
@@ -49,6 +50,8 @@ func Load() (Config, error) {
 
 	timeoutSeconds := getenvInt("OPENAI_REQUEST_TIMEOUT_SECONDS", 600)
 	cfg.OpenAIRequestTimeout = time.Duration(timeoutSeconds) * time.Second
+	claimDelaySeconds := positiveEnvInt("WORKER_CLAIM_DELAY_SECONDS", 8)
+	cfg.WorkerClaimDelay = time.Duration(claimDelaySeconds) * time.Second
 
 	if raw := os.Getenv("IMAGE_SIZE_PRESETS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.ImageSizePresets); err != nil {

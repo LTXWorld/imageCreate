@@ -74,14 +74,14 @@ function getGenerationProgress(task: GenerationTask, now: number): GenerationPro
     return {
       percent: progressBetween(elapsedMS, runningProgressDurationMS, 25, 92),
       label: elapsedMS > 120_000 ? "即将完成" : "正在绘制细节",
-      helperText: "请保持页面打开，完成后会自动显示结果。",
+      helperText: "已开始生成，请保持页面打开，完成后会自动显示结果。",
     };
   }
 
   return {
     percent: progressBetween(elapsedMS, queuedProgressDurationMS, 5, 25),
     label: "正在排队",
-    helperText: "任务已提交，系统正在准备生成。",
+    helperText: "任务已提交，短时间内可取消本次提交。",
   };
 }
 
@@ -151,6 +151,7 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
   const [submitting, setSubmitting] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [currentTask, setCurrentTask] = useState<GenerationTask | null>(null);
   const [progressNow, setProgressNow] = useState(() => Date.now());
   const [error, setError] = useState("");
@@ -215,7 +216,25 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
     }
   }
 
-  const disabled = submitting || isActiveTask(currentTask);
+  async function handleCancel() {
+    if (!currentTask || currentTask.status !== "queued") return;
+
+    setError("");
+    setCanceling(true);
+    try {
+      const body = await api<unknown>(`/api/generations/${currentTask.id}/cancel`, {
+        method: "POST",
+      });
+      setCurrentTask(normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0]));
+      refreshUserCredits();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "取消生成失败");
+    } finally {
+      setCanceling(false);
+    }
+  }
+
+  const disabled = submitting || canceling || isActiveTask(currentTask);
   const failureDetail = currentTask ? safeFailureDetail(currentTask) : "";
 
   return (
@@ -241,7 +260,7 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
             <span>付费额度 {user.paidCreditBalance}</span>
           </div>
           <p className="usage-note">
-            输入提示词，选择画面比例后开始生成。每次生成 1 张图，扣 1 点；失败会自动退回点数。生成图片保留 30 天。
+            输入提示词，选择画面比例后开始生成。提交后短时间内可取消；开始生成后无法取消消耗。生成图片保留 30 天。
           </p>
 
           <label className="field">
@@ -306,6 +325,22 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
               </dl>
 
               {currentTask.status !== "canceled" ? <GenerationProgress task={currentTask} now={progressNow} /> : null}
+              {currentTask.status === "queued" ? (
+                <button
+                  className="secondary-button cancel-generation-button"
+                  disabled={canceling}
+                  onClick={handleCancel}
+                  type="button"
+                >
+                  {canceling ? "取消中..." : "取消本次提交"}
+                </button>
+              ) : null}
+              {currentTask.status === "running" ? (
+                <p className="muted-text">已开始生成，请等待结果。</p>
+              ) : null}
+              {currentTask.status === "canceled" ? (
+                <p className="muted-text">已取消，本次额度已退回，可修改提示词后重新生成。</p>
+              ) : null}
               {currentTask.status === "failed" ? (
                 <>
                   <p className="form-error" role="alert">

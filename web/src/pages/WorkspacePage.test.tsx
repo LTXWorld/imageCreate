@@ -31,9 +31,9 @@ describe("WorkspacePage", () => {
     vi.restoreAllMocks();
   });
 
-  test("shows simple point, refund, and retention guidance", () => {
+  test("shows cancellation window and retention guidance", () => {
     render(<WorkspacePage user={user} />);
-    expect(screen.getByText("输入提示词，选择画面比例后开始生成。每次生成 1 张图，扣 1 点；失败会自动退回点数。生成图片保留 30 天。")).toBeInTheDocument();
+    expect(screen.getByText("输入提示词，选择画面比例后开始生成。提交后短时间内可取消；开始生成后无法取消消耗。生成图片保留 30 天。")).toBeInTheDocument();
   });
 
   test("shows split credit balances", () => {
@@ -214,6 +214,73 @@ describe("WorkspacePage", () => {
     });
 
     expect(onUserRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  test("cancels a queued generation and refreshes user credits", async () => {
+    const onUserRefresh = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          task: {
+            id: "task-cancel",
+            prompt: "写错的提示词",
+            ratio: "1:1",
+            size: "1024x1024",
+            status: "queued",
+            created_at: "2026-04-30T08:00:00Z",
+          },
+        }),
+      )
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          task: {
+            id: "task-cancel",
+            prompt: "写错的提示词",
+            ratio: "1:1",
+            size: "1024x1024",
+            status: "canceled",
+            created_at: "2026-04-30T08:00:00Z",
+            completed_at: "2026-04-30T08:00:10Z",
+          },
+        }),
+      );
+
+    render(<WorkspacePage user={user} onUserRefresh={onUserRefresh} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "写错的提示词");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(await screen.findByRole("button", { name: "取消本次提交" }));
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/generations/task-cancel/cancel",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(await screen.findByText("已取消，本次额度已退回，可修改提示词后重新生成。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成" })).toBeEnabled();
+    expect(onUserRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  test("does not offer cancellation after generation starts upstream", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-running-no-cancel",
+          prompt: "已经开始的提示词",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "running",
+          created_at: "2026-04-30T08:00:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "已经开始的提示词");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    expect(await screen.findByText("已开始生成，请等待结果。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消本次提交" })).not.toBeInTheDocument();
   });
 
   test("shows a progress bar while a queued task is waiting", async () => {

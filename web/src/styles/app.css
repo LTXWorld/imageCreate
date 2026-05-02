@@ -429,6 +429,13 @@ button:disabled {
   width: fit-content;
 }
 
+.cancel-generation-button {
+  width: fit-content;
+  border-color: #e3a6a1;
+  color: #8f2f28;
+  background: #fff7f5;
+}
+
 .workspace-page,
 .history-page,
 .admin-page {

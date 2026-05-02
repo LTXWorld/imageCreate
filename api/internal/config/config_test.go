@@ -35,9 +35,12 @@ func TestLoadDefaultsImagePresets(t *testing.T) {
 	if cfg.WorkerConcurrency != 2 {
 		t.Fatalf("expected default worker concurrency 2, got %d", cfg.WorkerConcurrency)
 	}
+	if cfg.WorkerClaimDelay != 8*time.Second {
+		t.Fatalf("expected default worker claim delay 8s, got %s", cfg.WorkerClaimDelay)
+	}
 }
 
-func TestLoadWorkerConcurrencyFromEnv(t *testing.T) {
+func TestLoadWorkerSettingsFromEnv(t *testing.T) {
 	t.Setenv("APP_BASE_URL", "https://img.example.com")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/imagecreate?sslmode=disable")
 	t.Setenv("SESSION_SECRET", "test-secret-with-32-characters")
@@ -46,6 +49,7 @@ func TestLoadWorkerConcurrencyFromEnv(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://proxy.example.com")
 	t.Setenv("OPENAI_API_KEY", "sk-test")
 	t.Setenv("WORKER_CONCURRENCY", "3")
+	t.Setenv("WORKER_CLAIM_DELAY_SECONDS", "5")
 
 	cfg, err := Load()
 	if err != nil {
@@ -53,6 +57,9 @@ func TestLoadWorkerConcurrencyFromEnv(t *testing.T) {
 	}
 	if cfg.WorkerConcurrency != 3 {
 		t.Fatalf("expected worker concurrency 3, got %d", cfg.WorkerConcurrency)
+	}
+	if cfg.WorkerClaimDelay != 5*time.Second {
+		t.Fatalf("expected worker claim delay 5s, got %s", cfg.WorkerClaimDelay)
 	}
 }
 

@@ -26,6 +26,7 @@ var (
 	ErrDisabledUser        = errors.New("disabled user")
 	ErrTaskNotActive       = errors.New("task is not active")
 	ErrTaskActive          = errors.New("task is active")
+	ErrTaskAlreadyStarted  = errors.New("task already started")
 )
 
 type Service struct {
@@ -181,6 +182,69 @@ func (s Service) DeleteTaskForUser(ctx context.Context, userID, taskID string) e
 		return fmt.Errorf("commit delete task: %w", err)
 	}
 	return nil
+}
+
+func (s Service) CancelTaskForUser(ctx context.Context, userID, taskID string) (Task, error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin cancel task: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	err = tx.QueryRow(ctx, `
+		SELECT status
+		FROM generation_tasks
+		WHERE user_id = $1::uuid
+			AND id = $2::uuid
+			AND deleted_at IS NULL
+		FOR UPDATE
+	`, userID, taskID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, fmt.Errorf("lock task for cancel: %w", err)
+	}
+	if status == models.TaskRunning {
+		return Task{}, ErrTaskAlreadyStarted
+	}
+	if status != models.TaskQueued {
+		return Task{}, ErrTaskNotActive
+	}
+
+	task, err := scanTask(tx.QueryRow(ctx, `
+		UPDATE generation_tasks
+		SET status = $3,
+			error_code = 'user_canceled',
+			error_message = 'generation canceled by user',
+			completed_at = now()
+		WHERE user_id = $1::uuid
+			AND id = $2::uuid
+		RETURNING id::text,
+			user_id::text,
+			prompt,
+			size,
+			status,
+			COALESCE(image_path, ''),
+			COALESCE(error_code, ''),
+			COALESCE(error_message, ''),
+			created_at,
+			completed_at
+	`, userID, taskID, models.TaskCanceled))
+	if err != nil {
+		return Task{}, fmt.Errorf("mark task canceled: %w", err)
+	}
+
+	creditService := credits.Service{DB: s.DB}
+	if err := creditService.RefundGeneration(ctx, tx, userID, taskID, "generation task canceled"); err != nil {
+		return Task{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Task{}, fmt.Errorf("commit cancel task: %w", err)
+	}
+	return task, nil
 }
 
 func (s Service) MarkSucceeded(ctx context.Context, taskID, requestID, imagePath string, latencyMS int) error {

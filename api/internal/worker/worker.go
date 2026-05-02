@@ -19,6 +19,7 @@ import (
 const (
 	defaultPollInterval      = time.Second
 	defaultRunningTimeout    = 15 * time.Minute
+	defaultClaimDelay        = 8 * time.Second
 	finalizationTimeout      = 10 * time.Second
 	fallbackErrorCode        = "upstream_error"
 	fallbackErrorMessage     = "upstream image generation failed"
@@ -44,6 +45,7 @@ type Worker struct {
 	Logger         *log.Logger
 	PollInterval   time.Duration
 	RunningTimeout time.Duration
+	ClaimDelay     time.Duration
 }
 
 type claimedTask struct {
@@ -138,8 +140,8 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 
 	finalCtx, cancel := finalizationContext()
+	defer cancel()
 	err = w.Generations.MarkSucceeded(finalCtx, task.id, result.RequestID, imagePath, latencyMS)
-	cancel()
 	if err != nil {
 		logf(w.Logger, "generation_task_finalize_failed task_id=%s latency_ms=%d error_code=%s upstream_request_id=%s", task.id, latencyMS, storageErrorCode, result.RequestID)
 		failCtx, failCancel := finalizationContext()
@@ -212,16 +214,23 @@ func (w Worker) claimOne(ctx context.Context) (claimedTask, bool, error) {
 	}
 	defer tx.Rollback(ctx)
 
+	claimDelay := w.ClaimDelay
+	if claimDelay == 0 {
+		claimDelay = defaultClaimDelay
+	}
+	readyBefore := time.Now().Add(-claimDelay)
+
 	var task claimedTask
 	err = tx.QueryRow(ctx, `
 		SELECT id::text, prompt, size
 		FROM generation_tasks
 		WHERE status = $1
+			AND created_at <= $2
 			AND deleted_at IS NULL
 		ORDER BY created_at, id
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED
-	`, models.TaskQueued).Scan(&task.id, &task.prompt, &task.size)
+	`, models.TaskQueued, readyBefore).Scan(&task.id, &task.prompt, &task.size)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return claimedTask{}, false, nil
 	}

@@ -19,6 +19,7 @@ type TaskService interface {
 	CreateTask(ctx context.Context, input CreateTaskInput) (Task, error)
 	GetTaskForUser(ctx context.Context, userID, taskID string) (Task, error)
 	ListTasksForUser(ctx context.Context, userID string) ([]Task, error)
+	CancelTaskForUser(ctx context.Context, userID, taskID string) (Task, error)
 	DeleteTaskForUser(ctx context.Context, userID, taskID string) error
 }
 
@@ -117,6 +118,26 @@ func (h Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h Handlers) Cancel(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.CurrentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "请先登录")
+		return
+	}
+
+	taskID, ok := validTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	task, err := h.Service.CancelTaskForUser(r.Context(), user.ID, taskID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]taskResponse{"task": newTaskResponse(task)})
 }
 
 func (h Handlers) Image(w http.ResponseWriter, r *http.Request) {
@@ -266,6 +287,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "active_task_exists", "已有生成任务正在进行")
 	case errors.Is(err, ErrTaskActive):
 		writeError(w, http.StatusConflict, "task_active", "任务正在进行中")
+	case errors.Is(err, ErrTaskAlreadyStarted):
+		writeError(w, http.StatusConflict, "task_already_started", "已开始生成，无法取消")
+	case errors.Is(err, ErrTaskNotActive):
+		writeError(w, http.StatusConflict, "task_not_active", "任务已结束，无法取消")
 	case errors.Is(err, ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "任务不存在")
 	case errors.Is(err, ErrDisabledUser):

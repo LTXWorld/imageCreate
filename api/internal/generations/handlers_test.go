@@ -33,6 +33,7 @@ func setupGenerationHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, I
 		r.Post("/api/generations", handlers.Create)
 		r.Get("/api/generations", handlers.List)
 		r.Get("/api/generations/{id}", handlers.Get)
+		r.Post("/api/generations/{id}/cancel", handlers.Cancel)
 		r.Delete("/api/generations/{id}", handlers.Delete)
 		r.Get("/api/generations/{id}/image", handlers.Image)
 	})
@@ -156,6 +157,85 @@ func TestGenerationFailureMessageIsChinese(t *testing.T) {
 	}
 }
 
+func TestCancelGenerationReturnsCanceledTask(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-cancel", 1)
+
+	task, err := testService(db).CreateTask(ctx, CreateTaskInput{
+		UserID: userID,
+		Prompt: "wrong prompt",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	req := authenticatedJSONRequest(t, http.MethodPost, "/api/generations/"+task.ID+"/cancel", "", userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp struct {
+		Task struct {
+			Status      string `json:"status"`
+			CompletedAt string `json:"completed_at"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Task.Status != models.TaskCanceled {
+		t.Fatalf("status = %q, want %q", resp.Task.Status, models.TaskCanceled)
+	}
+	if resp.Task.CompletedAt == "" {
+		t.Fatal("completed_at is empty")
+	}
+}
+
+func TestCancelRunningGenerationReturnsStartedError(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-cancel-running", 1)
+
+	task, err := testService(db).CreateTask(ctx, CreateTaskInput{
+		UserID: userID,
+		Prompt: "already started prompt",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE generation_tasks
+		SET status = $2,
+			started_at = now()
+		WHERE id = $1::uuid
+	`, task.ID, models.TaskRunning); err != nil {
+		t.Fatalf("mark task running: %v", err)
+	}
+
+	req := authenticatedJSONRequest(t, http.MethodPost, "/api/generations/"+task.ID+"/cancel", "", userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+	var resp struct {
+		ErrorCode string `json:"error_code"`
+		Message   string `json:"message"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ErrorCode != "task_already_started" || resp.Message != "已开始生成，无法取消" {
+		t.Fatalf("error response = %+v, want task_already_started", resp)
+	}
+}
+
 func TestGenerationInvalidIDReturnsStableError(t *testing.T) {
 	ctx, db, _, handler := setupGenerationHandlerTest(t)
 	userID := insertGenerationTestUser(t, ctx, db, "handler-invalid-id", 1)
@@ -166,6 +246,7 @@ func TestGenerationInvalidIDReturnsStableError(t *testing.T) {
 		path   string
 	}{
 		{name: "get", method: http.MethodGet, path: "/api/generations/not-a-uuid"},
+		{name: "cancel", method: http.MethodPost, path: "/api/generations/not-a-uuid/cancel"},
 		{name: "delete", method: http.MethodDelete, path: "/api/generations/not-a-uuid"},
 		{name: "image", method: http.MethodGet, path: "/api/generations/not-a-uuid/image"},
 	} {

@@ -30,6 +30,7 @@ func (a *App) Routes() http.Handler {
 		r.Post("/api/generations", a.generationHandlers.Create)
 		r.Get("/api/generations", a.generationHandlers.List)
 		r.Get("/api/generations/{id}", a.generationHandlers.Get)
+		r.Post("/api/generations/{id}/cancel", a.generationHandlers.Cancel)
 		r.Delete("/api/generations/{id}", a.generationHandlers.Delete)
 		r.Get("/api/generations/{id}/image", a.generationHandlers.Image)
 	})

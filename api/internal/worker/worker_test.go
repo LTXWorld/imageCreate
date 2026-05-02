@@ -213,6 +213,7 @@ func TestWorkerProcessesQueuedTaskSuccessfully(t *testing.T) {
 		Generations: service,
 		Upstream:    upstreamClient,
 		Storage:     storage,
+		ClaimDelay:  -time.Second,
 	}
 
 	processed, err := worker.ProcessOne(ctx)
@@ -289,6 +290,7 @@ func TestRunPoolProcessesTasksConcurrently(t *testing.T) {
 		Generations: service,
 		Upstream:    upstreamClient,
 		Storage:     storage,
+		ClaimDelay:  -time.Second,
 	}, 2)
 
 	select {
@@ -343,6 +345,7 @@ func TestWorkerRefundsOnUpstreamFailure(t *testing.T) {
 		Generations: service,
 		Upstream:    upstreamClient,
 		Storage:     storage,
+		ClaimDelay:  -time.Second,
 	}
 
 	processed, err := worker.ProcessOne(ctx)
@@ -381,6 +384,48 @@ func TestWorkerRefundsOnUpstreamFailure(t *testing.T) {
 	}
 }
 
+func TestWorkerSkipsFreshQueuedTaskDuringCancelWindow(t *testing.T) {
+	ctx, db := setupWorkerTestDB(t)
+	service := workerGenerationService(db)
+	userID := insertWorkerTestUser(t, ctx, db, "worker-cancel-window", 1)
+
+	task, err := service.CreateTask(ctx, generations.CreateTaskInput{
+		UserID: userID,
+		Prompt: "draw a prompt with a cancel window",
+		Ratio:  "1:1",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	upstreamClient := &fakeUpstream{t: t}
+	storage := &fakeStorage{t: t}
+	worker := Worker{
+		DB:          db,
+		Generations: service,
+		Upstream:    upstreamClient,
+		Storage:     storage,
+		ClaimDelay:  time.Minute,
+	}
+
+	processed, err := worker.ProcessOne(ctx)
+	if err != nil {
+		t.Fatalf("process one: %v", err)
+	}
+	if processed {
+		t.Fatal("processed = true, want false for a fresh queued task")
+	}
+	if upstreamClient.called != 0 {
+		t.Fatalf("upstream calls = %d, want 0", upstreamClient.called)
+	}
+	if storage.called != 0 {
+		t.Fatalf("storage calls = %d, want 0", storage.called)
+	}
+	if got := workerTaskStatus(t, ctx, db, task.ID); got != models.TaskQueued {
+		t.Fatalf("task status = %q, want %q", got, models.TaskQueued)
+	}
+}
+
 func TestWorkerSkipsWhenNoQueuedTask(t *testing.T) {
 	ctx, db := setupWorkerTestDB(t)
 	service := workerGenerationService(db)
@@ -391,6 +436,7 @@ func TestWorkerSkipsWhenNoQueuedTask(t *testing.T) {
 		Generations: service,
 		Upstream:    upstreamClient,
 		Storage:     storage,
+		ClaimDelay:  -time.Second,
 	}
 
 	processed, err := worker.ProcessOne(ctx)
@@ -438,6 +484,7 @@ func TestWorkerRecoversStaleRunningTask(t *testing.T) {
 		Upstream:       upstreamClient,
 		Storage:        storage,
 		RunningTimeout: time.Minute,
+		ClaimDelay:     -time.Second,
 	}
 
 	processed, err := worker.ProcessOne(ctx)
@@ -513,6 +560,7 @@ func TestWorkerFinalizesFailureAfterRequestCancellation(t *testing.T) {
 		Generations: service,
 		Upstream:    upstreamClient,
 		Storage:     storage,
+		ClaimDelay:  -time.Second,
 	}
 
 	processed, err := worker.ProcessOne(requestCtx)

@@ -53,6 +53,7 @@ func New(cfg config.Config, db *pgxpool.Pool) (*App, error) {
 			Generations: generationService,
 			Upstream:    upstreamClient,
 			Storage:     storage,
+			ClaimDelay:  cfg.WorkerClaimDelay,
 		},
 	}, nil
 }
