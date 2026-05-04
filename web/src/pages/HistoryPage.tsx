@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 
 import { api, generationImageFilename, normalizeGenerationList, type GenerationTask } from "../api/client";
+import { ImagePreviewDialog } from "../components/ImagePreviewDialog";
 
 type HistoryPageProps = {
   onWorkspaceClick?: () => void;
+};
+
+type PreviewImage = {
+  alt: string;
+  src: string;
 };
 
 function statusText(status: GenerationTask["status"]) {
@@ -30,6 +36,7 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
 
   async function loadHistory() {
     setError("");
@@ -103,7 +110,14 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
             </div>
 
             {task.status === "succeeded" && task.imageUrl ? (
-              <img className="history-preview" src={task.imageUrl} alt={task.prompt} />
+              <button
+                aria-label={`预览图片：${task.prompt}`}
+                className="image-preview-trigger history-preview-trigger"
+                onClick={() => setPreviewImage({ alt: task.prompt, src: task.imageUrl })}
+                type="button"
+              >
+                <img className="history-preview" src={task.imageUrl} alt={task.prompt} />
+              </button>
             ) : null}
 
             <div className="history-actions">
@@ -128,6 +142,13 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
           </article>
         ))}
       </div>
+      {previewImage ? (
+        <ImagePreviewDialog
+          alt={previewImage.alt}
+          onClose={() => setPreviewImage(null)}
+          src={previewImage.src}
+        />
+      ) : null}
     </section>
   );
 }

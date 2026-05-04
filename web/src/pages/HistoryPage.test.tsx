@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { HistoryPage } from "./HistoryPage";
@@ -56,6 +57,17 @@ describe("HistoryPage", () => {
     const downloadLink = screen.getByRole("link", { name: "下载图片" });
     expect(downloadLink).toHaveAttribute("href", "/api/generations/task-1/image");
     expect(downloadLink).toHaveAttribute("download", "imagecreate-task-1-16-9.png");
+    await userEvent.click(screen.getByRole("button", { name: "预览图片：我的山谷" }));
+
+    const dialog = screen.getByRole("dialog", { name: "图片预览" });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole("img", { name: "我的山谷" })).toHaveAttribute(
+      "src",
+      "/api/generations/task-1/image",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "关闭图片预览" }));
+    expect(screen.queryByRole("dialog", { name: "图片预览" })).not.toBeInTheDocument();
     // The frontend can only render tasks returned by the user-scoped API.
     expect(screen.queryByText("其他用户的图片")).not.toBeInTheDocument();
   });

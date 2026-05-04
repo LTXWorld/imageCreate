@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -502,6 +502,39 @@ describe("WorkspacePage", () => {
     const downloadLink = await screen.findByRole("link", { name: "下载图片" });
     expect(downloadLink).toHaveAttribute("href", "/api/generations/task-5/image");
     expect(downloadLink).toHaveAttribute("download", "imagecreate-task-5-16-9.png");
+  });
+
+  test("opens and closes a preview dialog from the generated result image", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-preview",
+          prompt: "星空城堡",
+          ratio: "16:9",
+          size: "1280x720",
+          status: "succeeded",
+          image_url: "/api/generations/task-preview/image",
+          created_at: "2026-04-30T08:00:00Z",
+          completed_at: "2026-04-30T08:01:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.type(screen.getByLabelText("提示词"), "星空城堡");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(await screen.findByRole("button", { name: "预览图片：星空城堡" }));
+
+    const dialog = screen.getByRole("dialog", { name: "图片预览" });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole("img", { name: "星空城堡" })).toHaveAttribute(
+      "src",
+      "/api/generations/task-preview/image",
+    );
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "图片预览" })).not.toBeInTheDocument();
   });
 
   test("shows completed progress when generation succeeds", async () => {

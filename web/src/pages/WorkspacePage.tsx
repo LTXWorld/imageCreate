@@ -7,6 +7,7 @@ import {
   type GenerationTask,
   type User,
 } from "../api/client";
+import { ImagePreviewDialog } from "../components/ImagePreviewDialog";
 
 const ratios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const privateSupportConfig = {
@@ -25,6 +26,11 @@ type GenerationProgressState = {
   percent: number;
   label: string;
   helperText: string;
+};
+
+type PreviewImage = {
+  alt: string;
+  src: string;
 };
 
 type WorkspacePageProps = {
@@ -159,6 +165,7 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
   const [canceling, setCanceling] = useState(false);
   const [currentTask, setCurrentTask] = useState<GenerationTask | null>(null);
   const [progressNow, setProgressNow] = useState(() => Date.now());
+  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
   const [error, setError] = useState("");
 
   function refreshUserCredits() {
@@ -381,7 +388,14 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
               ) : null}
               {currentTask.status === "succeeded" && currentTask.imageUrl ? (
                 <>
-                  <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
+                  <button
+                    aria-label={`预览图片：${currentTask.prompt}`}
+                    className="image-preview-trigger"
+                    onClick={() => setPreviewImage({ alt: currentTask.prompt, src: currentTask.imageUrl })}
+                    type="button"
+                  >
+                    <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
+                  </button>
                   <a
                     className="secondary-button download-button"
                     download={generationImageFilename(currentTask)}
@@ -397,6 +411,13 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
           )}
         </section>
       </div>
+      {previewImage ? (
+        <ImagePreviewDialog
+          alt={previewImage.alt}
+          onClose={() => setPreviewImage(null)}
+          src={previewImage.src}
+        />
+      ) : null}
     </section>
   );
 }
