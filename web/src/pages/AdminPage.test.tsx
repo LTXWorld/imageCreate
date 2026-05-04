@@ -451,14 +451,14 @@ describe("AdminPage", () => {
     expect(await screen.findByText("用户密码已重置")).toBeInTheDocument();
   });
 
-  test("shows the simple credit rule in the credit tab", async () => {
+  test("shows the credit rule in the credit tab", async () => {
     mockAdminFetch();
 
     render(<AdminPage user={adminUser} />);
 
     await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
 
-    expect(screen.getByText("点数规则：每次生成扣 1 点，失败自动退回 1 点。")).toBeInTheDocument();
+    expect(screen.getByText("点数规则：文生图扣 1 点，图生图扣 2 点，失败自动退回本次消耗点数。")).toBeInTheDocument();
   });
 
   test("does not render image links in audit task table", async () => {

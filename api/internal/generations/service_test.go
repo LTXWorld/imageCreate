@@ -99,6 +99,25 @@ func countUserLedgerRows(t *testing.T, ctx context.Context, db *pgxpool.Pool, us
 	return rows
 }
 
+func TestGenerationCreditCost(t *testing.T) {
+	tests := []struct {
+		name               string
+		referenceImagePath string
+		want               int
+	}{
+		{name: "text to image", referenceImagePath: "", want: 1},
+		{name: "image to image", referenceImagePath: "references/source.png", want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := generationCreditCost(tt.referenceImagePath); got != tt.want {
+				t.Fatalf("generationCreditCost(%q) = %d, want %d", tt.referenceImagePath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCreateTaskDebitsOneCredit(t *testing.T) {
 	ctx, db := setupGenerationTestDB(t)
 	service := testService(db)
@@ -151,6 +170,109 @@ func TestCreateTaskPersistsReferenceImagePath(t *testing.T) {
 	}
 	if got.ReferenceImagePath != "references/task-reference.jpg" {
 		t.Fatalf("reference image path = %q, want references/task-reference.jpg", got.ReferenceImagePath)
+	}
+}
+
+func TestCreateImageTaskDebitsTwoCredits(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "image-cost-two", 3)
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "把参考图变成电影海报",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/image-cost-two.jpg",
+	})
+	if err != nil {
+		t.Fatalf("create image task: %v", err)
+	}
+
+	if got := creditBalance(t, ctx, db, userID); got != 1 {
+		t.Fatalf("credit_balance = %d, want 1", got)
+	}
+
+	var amount, balanceAfter int
+	if err := db.QueryRow(ctx, `
+		SELECT amount, balance_after
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND task_id = $2::uuid
+			AND type = $3
+			AND wallet_type = $4
+	`, userID, task.ID, models.LedgerDailyFreeGenerationDebit, models.WalletDailyFree).Scan(&amount, &balanceAfter); err != nil {
+		t.Fatalf("query image debit ledger: %v", err)
+	}
+	if amount != -2 || balanceAfter != 1 {
+		t.Fatalf("debit ledger amount=%d balance_after=%d, want -2,1", amount, balanceAfter)
+	}
+}
+
+func TestCreateImageTaskCanSplitTwoCreditCostAcrossWallets(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "image-cost-split", 0)
+	_, err := db.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_limit = 1,
+			daily_free_credit_balance = 1,
+			paid_credit_balance = 1,
+			credit_balance = 2
+		WHERE id = $1::uuid
+	`, userID)
+	if err != nil {
+		t.Fatalf("seed wallets: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "把参考图变成水彩插画",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/image-cost-split.jpg",
+	})
+	if err != nil {
+		t.Fatalf("create image task: %v", err)
+	}
+
+	var freeBalance, paidBalance, total int
+	if err := db.QueryRow(ctx, `SELECT daily_free_credit_balance, paid_credit_balance, credit_balance FROM users WHERE id = $1::uuid`, userID).Scan(&freeBalance, &paidBalance, &total); err != nil {
+		t.Fatalf("query wallets: %v", err)
+	}
+	if freeBalance != 0 || paidBalance != 0 || total != 0 {
+		t.Fatalf("wallets free=%d paid=%d total=%d, want 0,0,0", freeBalance, paidBalance, total)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerDailyFreeGenerationDebit); rows != 1 {
+		t.Fatalf("daily free debit ledger rows = %d, want 1", rows)
+	}
+	if rows := countLedgerRows(t, ctx, db, userID, task.ID, models.LedgerPaidGenerationDebit); rows != 1 {
+		t.Fatalf("paid debit ledger rows = %d, want 1", rows)
+	}
+}
+
+func TestCreateImageTaskRejectsOneCreditBalance(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "image-cost-insufficient", 1)
+
+	_, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "把参考图变成电影海报",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/image-cost-insufficient.jpg",
+	})
+	if !errors.Is(err, ErrInsufficientCredits) {
+		t.Fatalf("create image task error = %v, want ErrInsufficientCredits", err)
+	}
+
+	var taskRows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM generation_tasks WHERE user_id = $1`, userID).Scan(&taskRows); err != nil {
+		t.Fatalf("count task rows: %v", err)
+	}
+	if taskRows != 0 {
+		t.Fatalf("task rows = %d, want 0", taskRows)
+	}
+	if got := creditBalance(t, ctx, db, userID); got != 1 {
+		t.Fatalf("credit_balance = %d, want 1", got)
 	}
 }
 
@@ -398,6 +520,45 @@ func TestFailTaskRefundsCredit(t *testing.T) {
 	}
 }
 
+func TestFailImageTaskRefundsTwoCredits(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "image-refund-two", 3)
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "把参考图变成电影海报",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/image-refund-two.jpg",
+	})
+	if err != nil {
+		t.Fatalf("create image task: %v", err)
+	}
+
+	if err := service.MarkFailedAndRefund(ctx, task.ID, "upstream_error", "provider returned an error", 321); err != nil {
+		t.Fatalf("mark failed and refund: %v", err)
+	}
+
+	if got := creditBalance(t, ctx, db, userID); got != 3 {
+		t.Fatalf("credit_balance = %d, want 3", got)
+	}
+
+	var amount, balanceAfter int
+	if err := db.QueryRow(ctx, `
+		SELECT amount, balance_after
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND task_id = $2::uuid
+			AND type = $3
+			AND wallet_type = $4
+	`, userID, task.ID, models.LedgerDailyFreeGenerationRefund, models.WalletDailyFree).Scan(&amount, &balanceAfter); err != nil {
+		t.Fatalf("query image refund ledger: %v", err)
+	}
+	if amount != 2 || balanceAfter != 3 {
+		t.Fatalf("refund ledger amount=%d balance_after=%d, want 2,3", amount, balanceAfter)
+	}
+}
+
 func TestCancelTaskRefundsCreditAndReleasesActiveSlot(t *testing.T) {
 	ctx, db := setupGenerationTestDB(t)
 	service := testService(db)
@@ -431,6 +592,55 @@ func TestCancelTaskRefundsCreditAndReleasesActiveSlot(t *testing.T) {
 
 	if _, err := service.CreateTask(ctx, CreateTaskInput{UserID: userID, Prompt: "draw the corrected prompt", Ratio: "1:1"}); err != nil {
 		t.Fatalf("create task after cancellation: %v", err)
+	}
+}
+
+func TestCancelImageTaskRefundsTwoCreditsAndReleasesActiveSlot(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "cancel-image-active", 2)
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "把参考图变成电影海报",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/cancel-image-active.jpg",
+	})
+	if err != nil {
+		t.Fatalf("create image task: %v", err)
+	}
+
+	canceled, err := service.CancelTaskForUser(ctx, userID, task.ID)
+	if err != nil {
+		t.Fatalf("cancel image task: %v", err)
+	}
+	if canceled.Status != models.TaskCanceled {
+		t.Fatalf("canceled task status = %q, want %q", canceled.Status, models.TaskCanceled)
+	}
+	if canceled.ReferenceImagePath != "references/cancel-image-active.jpg" {
+		t.Fatalf("canceled reference image path = %q, want references/cancel-image-active.jpg", canceled.ReferenceImagePath)
+	}
+	if got := creditBalance(t, ctx, db, userID); got != 2 {
+		t.Fatalf("credit_balance = %d, want 2", got)
+	}
+
+	var amount, balanceAfter int
+	if err := db.QueryRow(ctx, `
+		SELECT amount, balance_after
+		FROM credit_ledger
+		WHERE user_id = $1::uuid
+			AND task_id = $2::uuid
+			AND type = $3
+			AND wallet_type = $4
+	`, userID, task.ID, models.LedgerDailyFreeGenerationRefund, models.WalletDailyFree).Scan(&amount, &balanceAfter); err != nil {
+		t.Fatalf("query image cancel refund ledger: %v", err)
+	}
+	if amount != 2 || balanceAfter != 2 {
+		t.Fatalf("refund ledger amount=%d balance_after=%d, want 2,2", amount, balanceAfter)
+	}
+
+	if _, err := service.CreateTask(ctx, CreateTaskInput{UserID: userID, Prompt: "draw the corrected prompt", Ratio: "1:1"}); err != nil {
+		t.Fatalf("create task after image cancellation: %v", err)
 	}
 }
 

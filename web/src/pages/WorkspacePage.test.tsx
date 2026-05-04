@@ -33,7 +33,7 @@ describe("WorkspacePage", () => {
 
   test("shows cancellation window and retention guidance", () => {
     render(<WorkspacePage user={user} />);
-    expect(screen.getByText("输入提示词，选择画面比例后开始生成。提交后短时间内可取消；开始生成后无法取消消耗。生成图片保留 30 天。")).toBeInTheDocument();
+    expect(screen.getByText("输入提示词，选择画面比例后开始生成。文生图消耗 1 点，图生图消耗 2 点；提交后短时间内可取消。生成图片保留 30 天。")).toBeInTheDocument();
   });
 
   test("shows split credit balances", () => {
@@ -43,6 +43,16 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("8 点")).toBeInTheDocument();
     expect(screen.getByText("今日免费额度 5/5")).toBeInTheDocument();
     expect(screen.getByText("付费额度 3")).toBeInTheDocument();
+  });
+
+  test("shows image-to-image credit cost", async () => {
+    render(<WorkspacePage user={user} />);
+
+    expect(screen.getByText("本次消耗 1 点")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "图生图" }));
+
+    expect(screen.getByText("本次消耗 2 点")).toBeInTheDocument();
   });
 
   test("shows private support contact guidance", () => {

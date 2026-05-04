@@ -604,7 +604,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
       {!loading && activeTab === "credits" ? (
         <section className="admin-section panel" aria-labelledby="credits-title">
           <h3 id="credits-title">额度管理</h3>
-          <p className="muted-text">点数规则：每次生成扣 1 点，失败自动退回 1 点。</p>
+          <p className="muted-text">点数规则：文生图扣 1 点，图生图扣 2 点，失败自动退回本次消耗点数。</p>
           <div className="table-wrap">
             <table className="admin-table credit-table">
               <thead>

@@ -79,7 +79,8 @@ func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, e
 		return Task{}, err
 	}
 
-	balanceAfter, walletType, ledgerType, err := debitGenerationCredit(ctx, tx, input.UserID)
+	creditCost := generationCreditCost(input.ReferenceImagePath)
+	debits, err := debitGenerationCredit(ctx, tx, input.UserID, creditCost)
 	if err != nil {
 		return Task{}, err
 	}
@@ -89,11 +90,13 @@ func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, e
 		return Task{}, err
 	}
 
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO credit_ledger (user_id, task_id, type, wallet_type, amount, balance_after, reason)
-		VALUES ($1::uuid, $2::uuid, $3, $4, -1, $5, $6)
-	`, input.UserID, task.ID, ledgerType, walletType, balanceAfter, "generation task created"); err != nil {
-		return Task{}, fmt.Errorf("insert debit ledger: %w", err)
+	for _, debit := range debits {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO credit_ledger (user_id, task_id, type, wallet_type, amount, balance_after, reason)
+			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+		`, input.UserID, task.ID, debit.ledgerType, debit.walletType, -debit.amount, debit.balanceAfter, "generation task created"); err != nil {
+			return Task{}, fmt.Errorf("insert debit ledger: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -230,6 +233,7 @@ func (s Service) CancelTaskForUser(ctx context.Context, userID, taskID string) (
 			size,
 			status,
 			COALESCE(image_path, ''),
+			COALESCE(reference_image_path, ''),
 			COALESCE(error_code, ''),
 			COALESCE(error_message, ''),
 			created_at,
@@ -371,54 +375,92 @@ func validatePrompt(prompt string) (string, error) {
 	return trimmed, nil
 }
 
-func debitGenerationCredit(ctx context.Context, tx pgx.Tx, userID string) (int, string, string, error) {
-	var balanceAfter int
+func generationCreditCost(referenceImagePath string) int {
+	if referenceImagePath != "" {
+		return 2
+	}
+	return 1
+}
+
+type generationCreditDebit struct {
+	amount       int
+	balanceAfter int
+	walletType   string
+	ledgerType   string
+}
+
+func debitGenerationCredit(ctx context.Context, tx pgx.Tx, userID string, amount int) ([]generationCreditDebit, error) {
+	var freeBalance, paidBalance, totalBalance int
 	err := tx.QueryRow(ctx, `
-		UPDATE users
-		SET daily_free_credit_balance = daily_free_credit_balance - 1,
-			credit_balance = daily_free_credit_balance - 1 + paid_credit_balance,
-			updated_at = now()
+		SELECT daily_free_credit_balance, paid_credit_balance, credit_balance
+		FROM users
 		WHERE id = $1::uuid
 			AND status = $2
-			AND daily_free_credit_balance >= 1
-		RETURNING credit_balance
-	`, userID, models.UserStatusActive).Scan(&balanceAfter)
-	if err == nil {
-		return balanceAfter, models.WalletDailyFree, models.LedgerDailyFreeGenerationDebit, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return 0, "", "", fmt.Errorf("debit daily free generation credit: %w", err)
-	}
-
-	err = tx.QueryRow(ctx, `
-		UPDATE users
-		SET paid_credit_balance = paid_credit_balance - 1,
-			credit_balance = daily_free_credit_balance + paid_credit_balance - 1,
-			updated_at = now()
-		WHERE id = $1::uuid
-			AND status = $2
-			AND paid_credit_balance >= 1
-		RETURNING credit_balance
-	`, userID, models.UserStatusActive).Scan(&balanceAfter)
-	if err == nil {
-		return balanceAfter, models.WalletPaid, models.LedgerPaidGenerationDebit, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return 0, "", "", fmt.Errorf("debit paid generation credit: %w", err)
-	}
-
-	var status string
-	err = tx.QueryRow(ctx, `SELECT status FROM users WHERE id = $1::uuid`, userID).Scan(&status)
+		FOR UPDATE
+	`, userID, models.UserStatusActive).Scan(&freeBalance, &paidBalance, &totalBalance)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, "", "", ErrNotFound
+		var status string
+		err = tx.QueryRow(ctx, `SELECT status FROM users WHERE id = $1::uuid`, userID).Scan(&status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("inspect user credit state: %w", err)
+		}
+		if status != models.UserStatusActive {
+			return nil, ErrDisabledUser
+		}
+		return nil, ErrInsufficientCredits
 	}
 	if err != nil {
-		return 0, "", "", fmt.Errorf("inspect user credit state: %w", err)
+		return nil, fmt.Errorf("lock user for generation credit debit: %w", err)
 	}
-	if status != models.UserStatusActive {
-		return 0, "", "", ErrDisabledUser
+	if totalBalance < amount || freeBalance+paidBalance < amount {
+		return nil, ErrInsufficientCredits
 	}
-	return 0, "", "", ErrInsufficientCredits
+
+	freeDebit := minInt(freeBalance, amount)
+	paidDebit := amount - freeDebit
+	updatedFreeBalance := freeBalance - freeDebit
+	updatedPaidBalance := paidBalance - paidDebit
+	updatedTotalBalance := updatedFreeBalance + updatedPaidBalance
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET daily_free_credit_balance = $2,
+			paid_credit_balance = $3,
+			credit_balance = $4,
+			updated_at = now()
+		WHERE id = $1::uuid
+	`, userID, updatedFreeBalance, updatedPaidBalance, updatedTotalBalance); err != nil {
+		return nil, fmt.Errorf("debit generation credits: %w", err)
+	}
+
+	debits := make([]generationCreditDebit, 0, 2)
+	if freeDebit > 0 {
+		debits = append(debits, generationCreditDebit{
+			amount:       freeDebit,
+			balanceAfter: totalBalance - freeDebit,
+			walletType:   models.WalletDailyFree,
+			ledgerType:   models.LedgerDailyFreeGenerationDebit,
+		})
+	}
+	if paidDebit > 0 {
+		debits = append(debits, generationCreditDebit{
+			amount:       paidDebit,
+			balanceAfter: updatedTotalBalance,
+			walletType:   models.WalletPaid,
+			ledgerType:   models.LedgerPaidGenerationDebit,
+		})
+	}
+	return debits, nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model, referenceImagePath string) (Task, error) {

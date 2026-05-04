@@ -319,6 +319,7 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
   const failureDetail = currentTask ? safeFailureDetail(currentTask) : "";
   const currentPromptLength = promptLength(prompt);
   const isPromptTooLong = currentPromptLength > promptMaxLength;
+  const generationCreditCost = generationMode === "image" ? 2 : 1;
 
   return (
     <section className="workspace-page" aria-labelledby="workspace-title">
@@ -343,7 +344,7 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
             <span>付费额度 {user.paidCreditBalance}</span>
           </div>
           <p className="usage-note">
-            输入提示词，选择画面比例后开始生成。提交后短时间内可取消；开始生成后无法取消消耗。生成图片保留 30 天。
+            输入提示词，选择画面比例后开始生成。文生图消耗 1 点，图生图消耗 2 点；提交后短时间内可取消。生成图片保留 30 天。
           </p>
 
           <div className="mode-switch" role="group" aria-label="生成模式">
@@ -364,6 +365,8 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
               图生图
             </button>
           </div>
+
+          <p className="field-help">本次消耗 {generationCreditCost} 点</p>
 
           {generationMode === "image" ? (
             <div className="reference-upload-panel">
