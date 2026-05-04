@@ -109,16 +109,22 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
               ) : null}
             </div>
 
-            {task.status === "succeeded" && task.imageUrl ? (
-              <button
-                aria-label={`预览图片：${task.prompt}`}
-                className="image-preview-trigger history-preview-trigger"
-                onClick={() => setPreviewImage({ alt: task.prompt, src: task.imageUrl })}
-                type="button"
-              >
-                <img className="history-preview" src={task.imageUrl} alt={task.prompt} />
-              </button>
-            ) : null}
+            {task.status === "succeeded" && task.imageUrl
+              ? (() => {
+                  const imageUrl: string = task.imageUrl;
+
+                  return (
+                    <button
+                      aria-label={`预览图片：${task.prompt}`}
+                      className="image-preview-trigger history-preview-trigger"
+                      onClick={() => setPreviewImage({ alt: task.prompt, src: imageUrl })}
+                      type="button"
+                    >
+                      <img className="history-preview" src={imageUrl} alt={task.prompt} />
+                    </button>
+                  );
+                })()
+              : null}
 
             <div className="history-actions">
               {task.status === "succeeded" && task.imageUrl ? (

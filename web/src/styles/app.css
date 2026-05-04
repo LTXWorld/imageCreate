@@ -307,6 +307,39 @@ button:disabled {
   padding: 32px;
 }
 
+.login-home {
+  display: grid;
+  grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  width: 100%;
+}
+
+.login-card {
+  width: 100%;
+}
+
+.login-showcase {
+  min-width: 0;
+}
+
+.showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.showcase-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border: 1px solid var(--color-jade-light);
+  border-radius: 12px;
+  background: #fdfdfd;
+  box-shadow: var(--shadow-ethereal);
+}
+
 .section-heading {
   margin-bottom: 22px;
 }
@@ -1093,6 +1126,7 @@ button:disabled {
   }
 
   .section-toolbar,
+  .login-home,
   .workspace-grid,
   .admin-grid,
   .history-item {
@@ -1117,5 +1151,13 @@ button:disabled {
   .history-actions {
     grid-column: auto;
     justify-items: stretch;
+  }
+
+  .login-home {
+    align-items: stretch;
+  }
+
+  .showcase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

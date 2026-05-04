@@ -386,25 +386,31 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
                   {failureDetail ? <p className="muted-text">{failureDetail}</p> : null}
                 </>
               ) : null}
-              {currentTask.status === "succeeded" && currentTask.imageUrl ? (
-                <>
-                  <button
-                    aria-label={`预览图片：${currentTask.prompt}`}
-                    className="image-preview-trigger"
-                    onClick={() => setPreviewImage({ alt: currentTask.prompt, src: currentTask.imageUrl })}
-                    type="button"
-                  >
-                    <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
-                  </button>
-                  <a
-                    className="secondary-button download-button"
-                    download={generationImageFilename(currentTask)}
-                    href={currentTask.imageUrl}
-                  >
-                    下载图片
-                  </a>
-                </>
-              ) : null}
+              {currentTask.status === "succeeded" && currentTask.imageUrl
+                ? (() => {
+                    const imageUrl: string = currentTask.imageUrl;
+
+                    return (
+                      <>
+                        <button
+                          aria-label={`预览图片：${currentTask.prompt}`}
+                          className="image-preview-trigger"
+                          onClick={() => setPreviewImage({ alt: currentTask.prompt, src: imageUrl })}
+                          type="button"
+                        >
+                          <img className="result-preview" src={imageUrl} alt={currentTask.prompt} />
+                        </button>
+                        <a
+                          className="secondary-button download-button"
+                          download={generationImageFilename(currentTask)}
+                          href={imageUrl}
+                        >
+                          下载图片
+                        </a>
+                      </>
+                    );
+                  })()
+                : null}
             </div>
           ) : (
             <div className="empty-state">填写提示词后开始生成。</div>

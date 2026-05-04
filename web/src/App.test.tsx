@@ -4,9 +4,33 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { App } from "./App";
 
+const showcaseAltTexts = [
+  "罗威纳展示图",
+  "伯恩山展示图",
+  "恭王府展示图",
+  "陈平安展示图",
+  "左右展示图",
+  "起床展示图",
+];
+
 describe("App", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  test("shows showcase images on the unauthenticated login page", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("not authenticated"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
+    });
+
+    const gallery = screen.getByLabelText("生成效果展示");
+    for (const altText of showcaseAltTexts) {
+      expect(within(gallery).getByAltText(altText)).toBeInTheDocument();
+    }
   });
 
   test("restores an existing session from auth me on startup", async () => {
@@ -41,6 +65,7 @@ describe("App", () => {
       expect(screen.getByText("alice")).toBeInTheDocument();
     });
     expect(screen.getByText("图像生成")).toBeInTheDocument();
+    expect(screen.queryByLabelText("生成效果展示")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/auth/me",
       expect.objectContaining({ credentials: "include" }),
