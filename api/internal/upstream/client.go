@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -103,7 +106,10 @@ func (c Client) EditImage(ctx context.Context, prompt, size, fileName string, im
 			return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
 		}
 	}
-	part, err := writer.CreateFormFile("image", fileName)
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes("image"), escapeQuotes(fileName)))
+	partHeader.Set("Content-Type", imageContentType(fileName, imageBytes))
+	part, err := writer.CreatePart(partHeader)
 	if err != nil {
 		return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
 	}
@@ -115,6 +121,20 @@ func (c Client) EditImage(ctx context.Context, prompt, size, fileName string, im
 	}
 
 	return c.doImageRequest(ctx, imageEditEndpoint(c.BaseURL), writer.FormDataContentType(), &body, size)
+}
+
+func imageContentType(fileName string, imageBytes []byte) string {
+	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(fileName))); strings.HasPrefix(contentType, "image/") {
+		return contentType
+	}
+	if detected := http.DetectContentType(imageBytes); strings.HasPrefix(detected, "image/") {
+		return detected
+	}
+	return "image/png"
+}
+
+func escapeQuotes(value string) string {
+	return strings.NewReplacer("\\", "\\\\", `"`, `\"`).Replace(value)
 }
 
 func (c Client) doImageRequest(ctx context.Context, endpoint, contentType string, body io.Reader, size string) (Result, error) {

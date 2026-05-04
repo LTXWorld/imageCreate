@@ -21,3 +21,8 @@ http://localhost {
 {$DOMAIN} {
 	import app_proxy
 }
+
+api2.bfsmlt.top {
+	encode zstd gzip
+	reverse_proxy cli-proxy-api:8317
+}

@@ -78,7 +78,7 @@ func TestGenerateImageSendsExpectedRequest(t *testing.T) {
 func TestEditImageSendsMultipartRequest(t *testing.T) {
 	var gotPath, gotMethod, gotAuth, gotContentType string
 	gotFields := map[string]string{}
-	var gotFileName string
+	var gotFileName, gotFileContentType string
 	var gotFileBytes []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +104,7 @@ func TestEditImageSendsMultipartRequest(t *testing.T) {
 			}
 			if part.FormName() == "image" {
 				gotFileName = part.FileName()
+				gotFileContentType = part.Header.Get("Content-Type")
 				gotFileBytes = data
 				continue
 			}
@@ -141,6 +142,9 @@ func TestEditImageSendsMultipartRequest(t *testing.T) {
 	}
 	if gotFileName != "reference.png" {
 		t.Fatalf("file name = %q, want reference.png", gotFileName)
+	}
+	if gotFileContentType != "image/png" {
+		t.Fatalf("file content type = %q, want image/png", gotFileContentType)
 	}
 	if string(gotFileBytes) != "reference-bytes" {
 		t.Fatalf("file bytes = %q, want reference-bytes", string(gotFileBytes))
