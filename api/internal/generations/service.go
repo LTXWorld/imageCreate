@@ -37,22 +37,24 @@ type Service struct {
 }
 
 type CreateTaskInput struct {
-	UserID string
-	Prompt string
-	Ratio  string
+	UserID             string
+	Prompt             string
+	Ratio              string
+	ReferenceImagePath string
 }
 
 type Task struct {
-	ID           string
-	UserID       string
-	Prompt       string
-	Size         string
-	Status       string
-	ImagePath    string
-	ErrorCode    string
-	ErrorMessage string
-	CreatedAt    time.Time
-	CompletedAt  sql.NullTime
+	ID                 string
+	UserID             string
+	Prompt             string
+	Size               string
+	Status             string
+	ImagePath          string
+	ReferenceImagePath string
+	ErrorCode          string
+	ErrorMessage       string
+	CreatedAt          time.Time
+	CompletedAt        sql.NullTime
 }
 
 func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {
@@ -82,7 +84,7 @@ func (s Service) CreateTask(ctx context.Context, input CreateTaskInput) (Task, e
 		return Task{}, err
 	}
 
-	task, err := insertTask(ctx, tx, input.UserID, prompt, size, s.Model)
+	task, err := insertTask(ctx, tx, input.UserID, prompt, size, s.Model, input.ReferenceImagePath)
 	if err != nil {
 		return Task{}, err
 	}
@@ -324,6 +326,7 @@ const taskSelectSQL = `
 		size,
 		status,
 		COALESCE(image_path, ''),
+		COALESCE(reference_image_path, ''),
 		COALESCE(error_code, ''),
 		COALESCE(error_message, ''),
 		created_at,
@@ -344,6 +347,7 @@ func scanTask(scanner taskScanner) (Task, error) {
 		&task.Size,
 		&task.Status,
 		&task.ImagePath,
+		&task.ReferenceImagePath,
 		&task.ErrorCode,
 		&task.ErrorMessage,
 		&task.CreatedAt,
@@ -417,28 +421,30 @@ func debitGenerationCredit(ctx context.Context, tx pgx.Tx, userID string) (int, 
 	return 0, "", "", ErrInsufficientCredits
 }
 
-func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model string) (Task, error) {
+func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model, referenceImagePath string) (Task, error) {
 	var task Task
 	err := tx.QueryRow(ctx, `
-		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
-		VALUES ($1::uuid, $2, $3, $4, $5)
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model, reference_image_path)
+		VALUES ($1::uuid, $2, $3, $4, $5, NULLIF($6, ''))
 		RETURNING id::text,
 			user_id::text,
 			prompt,
 			size,
 			status,
 			COALESCE(image_path, ''),
+			COALESCE(reference_image_path, ''),
 			COALESCE(error_code, ''),
 			COALESCE(error_message, ''),
 			created_at,
 			completed_at
-	`, userID, prompt, size, models.TaskQueued, model).Scan(
+	`, userID, prompt, size, models.TaskQueued, model, referenceImagePath).Scan(
 		&task.ID,
 		&task.UserID,
 		&task.Prompt,
 		&task.Size,
 		&task.Status,
 		&task.ImagePath,
+		&task.ReferenceImagePath,
 		&task.ErrorCode,
 		&task.ErrorMessage,
 		&task.CreatedAt,

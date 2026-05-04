@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -79,13 +80,50 @@ func (c Client) GenerateImage(ctx context.Context, prompt, size string) (Result,
 		return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
 	}
 
-	endpoint := imageGenerationEndpoint(c.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	return c.doImageRequest(ctx, imageGenerationEndpoint(c.BaseURL), "application/json", bytes.NewReader(body), size)
+}
+
+func (c Client) EditImage(ctx context.Context, prompt, size, fileName string, imageBytes []byte) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return errorResult("timeout", sanitizedMessage("timeout")), ErrTimeout
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fields := map[string]string{
+		"model":         c.Model,
+		"prompt":        prompt,
+		"n":             "1",
+		"size":          size,
+		"quality":       "auto",
+		"output_format": "png",
+	}
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
+		}
+	}
+	part, err := writer.CreateFormFile("image", fileName)
+	if err != nil {
+		return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
+	}
+	if _, err := part.Write(imageBytes); err != nil {
+		return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
+	}
+	if err := writer.Close(); err != nil {
+		return errorResult("upstream_error", "encode upstream request"), fmt.Errorf("%w: encode request", ErrUpstream)
+	}
+
+	return c.doImageRequest(ctx, imageEditEndpoint(c.BaseURL), writer.FormDataContentType(), &body, size)
+}
+
+func (c Client) doImageRequest(ctx context.Context, endpoint, contentType string, body io.Reader, size string) (Result, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
 	if err != nil {
 		return errorResult("upstream_error", "create upstream request"), fmt.Errorf("%w: create request", ErrUpstream)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 
 	httpClient := c.HTTPClient
 	if httpClient == nil {
@@ -142,6 +180,14 @@ func imageGenerationEndpoint(baseURL string) string {
 		return base + "/images/generations"
 	}
 	return base + "/v1/images/generations"
+}
+
+func imageEditEndpoint(baseURL string) string {
+	base := strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/images/edits"
+	}
+	return base + "/v1/images/edits"
 }
 
 func (c Client) handleErrorResponse(resp *http.Response, requestID string) (Result, error) {

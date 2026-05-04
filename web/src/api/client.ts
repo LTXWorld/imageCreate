@@ -99,6 +99,12 @@ type WrappedGenerationTask = {
   task?: ApiGenerationTask;
 };
 
+export type CreateGenerationInput = {
+  prompt: string;
+  ratio: string;
+  referenceImage?: File;
+};
+
 type ApiInvite = {
   id: string;
   code: string;
@@ -153,7 +159,8 @@ export type AuthResponse = {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (!headers.has("Content-Type")) {
+  const isFormDataBody = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  if (!headers.has("Content-Type") && !isFormDataBody) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -173,6 +180,32 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+
+export async function createGeneration(input: CreateGenerationInput): Promise<GenerationTask> {
+  if (input.referenceImage) {
+    const body = new FormData();
+    body.append("prompt", input.prompt);
+    body.append("ratio", input.ratio);
+    body.append("reference_image", input.referenceImage);
+
+    const response = await api<unknown>("/api/generations", {
+      method: "POST",
+      body,
+      headers: {},
+    });
+    return normalizeGenerationTask(response as Parameters<typeof normalizeGenerationTask>[0]);
+  }
+
+  const response = await api<unknown>("/api/generations", {
+    method: "POST",
+    body: JSON.stringify({ prompt: input.prompt, ratio: input.ratio }),
+  });
+  return normalizeGenerationTask(response as Parameters<typeof normalizeGenerationTask>[0]);
+}
+
+export const generationApi = {
+  createGeneration,
+};
 
 export function normalizeUser(user: ApiUser): User {
   const explicitCreditBalance = user.creditBalance ?? user.credit_balance;

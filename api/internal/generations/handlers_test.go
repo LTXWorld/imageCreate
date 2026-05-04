@@ -1,8 +1,11 @@
 package generations
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -39,6 +42,34 @@ func setupGenerationHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, I
 	})
 
 	return ctx, db, storage, r
+}
+
+func authenticatedMultipartRequest(t *testing.T, method, target string, fields map[string]string, fileField, fileName string, fileBytes []byte, userID string) *http.Request {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write field: %v", err)
+		}
+	}
+	part, err := writer.CreateFormFile(fileField, fileName)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write(fileBytes); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := authenticatedJSONRequest(t, method, target, "", userID)
+	req.Body = io.NopCloser(&body)
+	req.ContentLength = int64(body.Len())
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req
 }
 
 func TestCreateGenerationReturnsQueuedTask(t *testing.T) {
@@ -82,6 +113,62 @@ func TestCreateGenerationReturnsQueuedTask(t *testing.T) {
 	}
 	if resp.Task.CompletedAt != "" {
 		t.Fatalf("task completed_at = %q, want empty for queued task", resp.Task.CompletedAt)
+	}
+}
+
+func TestCreateGenerationAcceptsReferenceImageUpload(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-reference-upload", 3)
+	pngBytes := []byte("\x89PNG\r\n\x1a\nreference-bytes")
+
+	req := authenticatedMultipartRequest(t, http.MethodPost, "/api/generations", map[string]string{
+		"prompt": "把参考图变成电影海报",
+		"ratio":  "1:1",
+	}, "reference_image", "reference.png", pngBytes, userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var taskID, referencePath string
+	if err := db.QueryRow(ctx, `
+		SELECT id::text, COALESCE(reference_image_path, '')
+		FROM generation_tasks
+		WHERE user_id = $1::uuid
+	`, userID).Scan(&taskID, &referencePath); err != nil {
+		t.Fatalf("select task: %v", err)
+	}
+	if taskID == "" {
+		t.Fatal("task id is empty")
+	}
+	if referencePath == "" {
+		t.Fatal("reference image path is empty")
+	}
+	if strings.Contains(rec.Body.String(), referencePath) {
+		t.Fatalf("response leaked reference image path: %s", rec.Body.String())
+	}
+}
+
+func TestCreateGenerationRejectsUnsupportedReferenceImage(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-reference-gif", 3)
+
+	req := authenticatedMultipartRequest(t, http.MethodPost, "/api/generations", map[string]string{
+		"prompt": "把参考图变成电影海报",
+		"ratio":  "1:1",
+	}, "reference_image", "reference.gif", []byte("GIF89a"), userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "请上传 PNG 或 JPEG 图片") {
+		t.Fatalf("body = %s, want unsupported image message", rec.Body.String())
 	}
 }
 

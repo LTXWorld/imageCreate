@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -106,6 +107,7 @@ type fakeUpstream struct {
 	result     upstream.Result
 	err        error
 	called     int
+	editCalled int
 	cancel     context.CancelFunc
 }
 
@@ -126,13 +128,29 @@ func (f *fakeUpstream) GenerateImage(ctx context.Context, prompt, size string) (
 	return f.result, f.err
 }
 
+func (f *fakeUpstream) EditImage(ctx context.Context, prompt, size, fileName string, imageBytes []byte) (upstream.Result, error) {
+	f.editCalled++
+	if prompt != f.wantPrompt {
+		f.t.Fatalf("upstream edit prompt = %q, want %q", prompt, f.wantPrompt)
+	}
+	if size != f.wantSize {
+		f.t.Fatalf("upstream edit size = %q, want %q", size, f.wantSize)
+	}
+	if got := workerTaskStatus(f.t, ctx, f.db, f.taskID); got != models.TaskRunning {
+		f.t.Fatalf("task status during upstream edit call = %q, want %q", got, models.TaskRunning)
+	}
+	return f.result, f.err
+}
+
 type fakeStorage struct {
-	t      *testing.T
-	path   string
-	called int
-	taskID string
-	data   []byte
-	now    time.Time
+	t        *testing.T
+	path     string
+	called   int
+	taskID   string
+	data     []byte
+	now      time.Time
+	openPath string
+	openData []byte
 }
 
 func (s *fakeStorage) Save(ctx context.Context, taskID string, data []byte, now time.Time) (string, error) {
@@ -144,6 +162,26 @@ func (s *fakeStorage) Save(ctx context.Context, taskID string, data []byte, now 
 	s.data = append([]byte(nil), data...)
 	s.now = now
 	return s.path, nil
+}
+
+func (s *fakeStorage) Open(ctx context.Context, relativePath string) (*os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.openPath = relativePath
+	file, err := os.CreateTemp(s.t.TempDir(), "reference-*")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := file.Write(s.openData); err != nil {
+		file.Close()
+		return nil, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 type blockingUpstream struct {
@@ -170,6 +208,10 @@ func (u *blockingUpstream) GenerateImage(ctx context.Context, prompt, size strin
 
 	<-ctx.Done()
 	return upstream.Result{ErrorCode: "timeout", ErrorMessage: "upstream request timed out"}, ctx.Err()
+}
+
+func (u *blockingUpstream) EditImage(ctx context.Context, prompt, size, fileName string, imageBytes []byte) (upstream.Result, error) {
+	return u.GenerateImage(ctx, prompt, size)
 }
 
 func (u *blockingUpstream) Calls() int {
@@ -255,6 +297,55 @@ func TestWorkerProcessesQueuedTaskSuccessfully(t *testing.T) {
 	}
 	if rows := workerRefundLedgerRows(t, ctx, db, userID, task.ID); rows != 0 {
 		t.Fatalf("refund ledger rows = %d, want 0", rows)
+	}
+}
+
+func TestProcessOneUsesEditForReferenceImageTask(t *testing.T) {
+	ctx, db := setupWorkerTestDB(t)
+	service := workerGenerationService(db)
+	userID := insertWorkerTestUser(t, ctx, db, "worker-edit-user", 2)
+	task, err := service.CreateTask(ctx, generations.CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "make cinematic",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/worker-reference.png",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	storage := &fakeStorage{t: t, path: "generated/edit.png", openData: []byte("reference-bytes")}
+	upstreamClient := &fakeUpstream{
+		t:          t,
+		db:         db,
+		taskID:     task.ID,
+		wantPrompt: task.Prompt,
+		wantSize:   task.Size,
+		result: upstream.Result{
+			RequestID:  "req-edit-worker",
+			ImageBytes: []byte("edited-output"),
+		},
+	}
+	worker := Worker{DB: db, Generations: service, Upstream: upstreamClient, Storage: storage, ClaimDelay: -time.Second}
+
+	processed, err := worker.ProcessOne(ctx)
+	if err != nil {
+		t.Fatalf("process one: %v", err)
+	}
+	if !processed {
+		t.Fatal("processed = false, want true")
+	}
+	if upstreamClient.called != 0 {
+		t.Fatalf("generate calls = %d, want 0", upstreamClient.called)
+	}
+	if upstreamClient.editCalled != 1 {
+		t.Fatalf("edit calls = %d, want 1", upstreamClient.editCalled)
+	}
+	if storage.openPath != "references/worker-reference.png" {
+		t.Fatalf("opened path = %q, want references/worker-reference.png", storage.openPath)
+	}
+	if string(storage.data) != "edited-output" {
+		t.Fatalf("saved data = %q, want edited-output", string(storage.data))
 	}
 }
 

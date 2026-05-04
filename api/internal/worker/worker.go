@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -31,10 +34,12 @@ const (
 
 type Upstream interface {
 	GenerateImage(ctx context.Context, prompt, size string) (upstream.Result, error)
+	EditImage(ctx context.Context, prompt, size, fileName string, imageBytes []byte) (upstream.Result, error)
 }
 
 type Storage interface {
 	Save(ctx context.Context, taskID string, data []byte, now time.Time) (string, error)
+	Open(ctx context.Context, relativePath string) (*os.File, error)
 }
 
 type Worker struct {
@@ -49,9 +54,10 @@ type Worker struct {
 }
 
 type claimedTask struct {
-	id     string
-	prompt string
-	size   string
+	id                 string
+	prompt             string
+	size               string
+	referenceImagePath string
 }
 
 func (w Worker) Run(ctx context.Context) {
@@ -114,7 +120,7 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	logf(w.Logger, "generation_task_claimed task_id=%s size=%s", task.id, task.size)
 
 	started := time.Now()
-	result, err := w.Upstream.GenerateImage(ctx, task.prompt, task.size)
+	result, err := w.createUpstreamImage(ctx, task)
 	latencyMS := elapsedMilliseconds(started)
 	if err != nil {
 		code, message := upstreamFailure(result)
@@ -154,6 +160,25 @@ func (w Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 	logf(w.Logger, "generation_task_succeeded task_id=%s latency_ms=%d upstream_request_id=%s", task.id, latencyMS, result.RequestID)
 	return true, nil
+}
+
+func (w Worker) createUpstreamImage(ctx context.Context, task claimedTask) (upstream.Result, error) {
+	if task.referenceImagePath == "" {
+		return w.Upstream.GenerateImage(ctx, task.prompt, task.size)
+	}
+
+	file, err := w.Storage.Open(ctx, task.referenceImagePath)
+	if err != nil {
+		return upstream.Result{ErrorCode: storageErrorCode, ErrorMessage: "failed to read reference image"}, fmt.Errorf("read reference image: %w", err)
+	}
+	defer file.Close()
+
+	imageBytes, err := io.ReadAll(file)
+	if err != nil {
+		return upstream.Result{ErrorCode: storageErrorCode, ErrorMessage: "failed to read reference image"}, fmt.Errorf("read reference image: %w", err)
+	}
+
+	return w.Upstream.EditImage(ctx, task.prompt, task.size, filepath.Base(task.referenceImagePath), imageBytes)
 }
 
 func (w Worker) recoverStaleRunning(ctx context.Context) (bool, error) {
@@ -222,7 +247,7 @@ func (w Worker) claimOne(ctx context.Context) (claimedTask, bool, error) {
 
 	var task claimedTask
 	err = tx.QueryRow(ctx, `
-		SELECT id::text, prompt, size
+		SELECT id::text, prompt, size, COALESCE(reference_image_path, '')
 		FROM generation_tasks
 		WHERE status = $1
 			AND created_at <= $2
@@ -230,7 +255,7 @@ func (w Worker) claimOne(ctx context.Context) (claimedTask, bool, error) {
 		ORDER BY created_at, id
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED
-	`, models.TaskQueued, readyBefore).Scan(&task.id, &task.prompt, &task.size)
+	`, models.TaskQueued, readyBefore).Scan(&task.id, &task.prompt, &task.size, &task.referenceImagePath)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return claimedTask{}, false, nil
 	}

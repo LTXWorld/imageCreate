@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 
 import {
   api,
+  generationApi,
   generationImageFilename,
   normalizeGenerationTask,
   type GenerationTask,
@@ -21,6 +22,10 @@ const progressTickIntervalMS = 1000;
 const queuedProgressDurationMS = 90_000;
 const runningProgressDurationMS = 180_000;
 const promptMaxLength = 2000;
+const maxReferenceImageBytes = 5 * 1024 * 1024;
+const acceptedReferenceImageTypes = new Set(["image/png", "image/jpeg"]);
+
+type GenerationMode = "text" | "image";
 
 type GenerationProgressState = {
   percent: number;
@@ -161,6 +166,9 @@ function PrivateSupportCard() {
 export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: WorkspacePageProps) {
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("text");
+  const [referenceImage, setReferenceImage] = useState<File | null>(null);
+  const [referencePreviewURL, setReferencePreviewURL] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [currentTask, setCurrentTask] = useState<GenerationTask | null>(null);
@@ -206,6 +214,42 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
     return () => window.clearInterval(timer);
   }, [currentTask]);
 
+  useEffect(() => {
+    return () => {
+      if (referencePreviewURL) {
+        URL.revokeObjectURL(referencePreviewURL);
+      }
+    };
+  }, [referencePreviewURL]);
+
+  function clearReferenceImage() {
+    setReferenceImage(null);
+    setReferencePreviewURL("");
+  }
+
+  function handleReferenceImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setError("");
+    if (!file) {
+      clearReferenceImage();
+      return;
+    }
+
+    setReferenceImage(file);
+    setReferencePreviewURL((currentURL) => {
+      if (currentURL) URL.revokeObjectURL(currentURL);
+      return URL.createObjectURL(file);
+    });
+  }
+
+  function selectGenerationMode(nextMode: GenerationMode) {
+    setGenerationMode(nextMode);
+    setError("");
+    if (nextMode === "text") {
+      clearReferenceImage();
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -220,16 +264,31 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
       setError(`提示词不能超过 ${promptMaxLength} 个字符`);
       return;
     }
+    if (generationMode === "image") {
+      if (!referenceImage) {
+        setError("请上传参考图");
+        return;
+      }
+      if (!acceptedReferenceImageTypes.has(referenceImage.type)) {
+        setError("请上传 PNG 或 JPEG 图片");
+        return;
+      }
+      if (referenceImage.size > maxReferenceImageBytes) {
+        setError("参考图不能超过 5MB");
+        return;
+      }
+    }
 
     setError("");
     setSubmitting(true);
 
     try {
-      const body = await api<unknown>("/api/generations", {
-        method: "POST",
-        body: JSON.stringify({ prompt: trimmedPrompt, ratio }),
+      const task = await generationApi.createGeneration({
+        prompt: trimmedPrompt,
+        ratio,
+        referenceImage: generationMode === "image" ? referenceImage ?? undefined : undefined,
       });
-      setCurrentTask(normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0]));
+      setCurrentTask(task);
       refreshUserCredits();
     } catch (err) {
       setError(err instanceof Error ? err.message : "提交生成失败");
@@ -286,6 +345,53 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
           <p className="usage-note">
             输入提示词，选择画面比例后开始生成。提交后短时间内可取消；开始生成后无法取消消耗。生成图片保留 30 天。
           </p>
+
+          <div className="mode-switch" role="group" aria-label="生成模式">
+            <button
+              aria-pressed={generationMode === "text"}
+              className={generationMode === "text" ? "segment active" : "segment"}
+              onClick={() => selectGenerationMode("text")}
+              type="button"
+            >
+              文生图
+            </button>
+            <button
+              aria-pressed={generationMode === "image"}
+              className={generationMode === "image" ? "segment active" : "segment"}
+              onClick={() => selectGenerationMode("image")}
+              type="button"
+            >
+              图生图
+            </button>
+          </div>
+
+          {generationMode === "image" ? (
+            <div className="reference-upload-panel">
+              <label className="field-label-row" htmlFor="reference-image">
+                <span>参考图</span>
+                <span className="field-counter">PNG/JPEG · ≤5MB</span>
+              </label>
+              <input
+                accept="image/png,image/jpeg"
+                aria-label="参考图"
+                disabled={disabled}
+                id="reference-image"
+                onChange={handleReferenceImageChange}
+                type="file"
+              />
+              {referencePreviewURL ? (
+                <div className="reference-preview-wrap">
+                  <img alt="参考图预览" className="reference-preview" src={referencePreviewURL} />
+                  {referenceImage ? <p className="reference-file-meta">{referenceImage.name}</p> : null}
+                  <button className="secondary-button" onClick={clearReferenceImage} type="button">
+                    移除参考图
+                  </button>
+                </div>
+              ) : (
+                <p className="field-help">上传一张参考图，再用提示词描述想生成的新画面。</p>
+              )}
+            </div>
+          ) : null}
 
           <label className="field">
             <span className="field-label-row">

@@ -42,6 +42,38 @@ func (s ImageStorage) Save(ctx context.Context, taskID string, data []byte, now 
 	return relativePath, nil
 }
 
+func (s ImageStorage) SaveReference(ctx context.Context, taskSeed string, data []byte, extension string, now time.Time) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if invalidPathPart(taskSeed) {
+		return "", errors.New("invalid reference seed")
+	}
+	if extension != ".png" && extension != ".jpg" && extension != ".jpeg" {
+		return "", errors.New("invalid reference extension")
+	}
+
+	relativePath := filepath.Join(
+		"references",
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", int(now.Month())),
+		fmt.Sprintf("%02d", now.Day()),
+		taskSeed+extension,
+	)
+	fullPath := s.fullPath(relativePath)
+
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		return "", fmt.Errorf("create reference image directory: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(fullPath, data, 0o600); err != nil {
+		return "", fmt.Errorf("write reference image: %w", err)
+	}
+	return relativePath, nil
+}
+
 func (s ImageStorage) Open(ctx context.Context, relativePath string) (*os.File, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

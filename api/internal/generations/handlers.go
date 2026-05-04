@@ -2,9 +2,14 @@ package generations
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +19,7 @@ import (
 )
 
 const contentRejectedMessage = "提示词可能包含不支持生成的内容，请调整描述后重试。"
+const maxReferenceImageBytes = 5 << 20
 
 type TaskService interface {
 	CreateTask(ctx context.Context, input CreateTaskInput) (Task, error)
@@ -39,6 +45,11 @@ func (h Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		h.createMultipart(w, r, user.ID)
+		return
+	}
+
 	var req struct {
 		Prompt string `json:"prompt"`
 		Ratio  string `json:"ratio"`
@@ -52,6 +63,53 @@ func (h Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		UserID: user.ID,
 		Prompt: req.Prompt,
 		Ratio:  req.Ratio,
+	})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]taskResponse{"task": newTaskResponse(task)})
+}
+
+func (h Handlers) createMultipart(w http.ResponseWriter, r *http.Request, userID string) {
+	if err := r.ParseMultipartForm(maxReferenceImageBytes); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "请求格式错误")
+		return
+	}
+
+	file, header, err := r.FormFile("reference_image")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_reference_image", "请上传 PNG 或 JPEG 图片")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxReferenceImageBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_reference_image", "请上传 PNG 或 JPEG 图片")
+		return
+	}
+	if len(data) > maxReferenceImageBytes {
+		writeError(w, http.StatusBadRequest, "reference_image_too_large", "参考图不能超过 5MB")
+		return
+	}
+	if !validReferenceImage(data, header.Filename) {
+		writeError(w, http.StatusBadRequest, "invalid_reference_image", "请上传 PNG 或 JPEG 图片")
+		return
+	}
+
+	referencePath, err := h.Storage.SaveReference(r.Context(), randomReferenceSeed(), data, normalizedReferenceExtension(header.Filename), time.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "服务器错误")
+		return
+	}
+
+	task, err := h.Service.CreateTask(r.Context(), CreateTaskInput{
+		UserID:             userID,
+		Prompt:             r.FormValue("prompt"),
+		Ratio:              r.FormValue("ratio"),
+		ReferenceImagePath: referencePath,
 	})
 	if err != nil {
 		writeServiceError(w, err)
@@ -273,6 +331,37 @@ func isHex(r rune) bool {
 	return (r >= '0' && r <= '9') ||
 		(r >= 'a' && r <= 'f') ||
 		(r >= 'A' && r <= 'F')
+}
+
+func validReferenceImage(data []byte, filename string) bool {
+	if len(data) == 0 {
+		return false
+	}
+	extension := normalizedReferenceExtension(filename)
+	if extension != ".png" && extension != ".jpg" {
+		return false
+	}
+	contentType := http.DetectContentType(data)
+	return contentType == "image/png" || contentType == "image/jpeg"
+}
+
+func normalizedReferenceExtension(filename string) string {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".png":
+		return ".png"
+	case ".jpg", ".jpeg":
+		return ".jpg"
+	default:
+		return ""
+	}
+}
+
+func randomReferenceSeed() string {
+	var bytes [16]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return time.Now().UTC().Format("20060102150405.000000000")
+	}
+	return hex.EncodeToString(bytes[:])
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {

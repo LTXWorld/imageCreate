@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -71,6 +72,81 @@ func TestGenerateImageSendsExpectedRequest(t *testing.T) {
 	}
 	if result.RequestID != "req-test-123" {
 		t.Fatalf("request ID = %q, want req-test-123", result.RequestID)
+	}
+}
+
+func TestEditImageSendsMultipartRequest(t *testing.T) {
+	var gotPath, gotMethod, gotAuth, gotContentType string
+	gotFields := map[string]string{}
+	var gotFileName string
+	var gotFileBytes []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("multipart reader: %v", err)
+		}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("next part: %v", err)
+			}
+			data, err := io.ReadAll(part)
+			if err != nil {
+				t.Fatalf("read part: %v", err)
+			}
+			if part.FormName() == "image" {
+				gotFileName = part.FileName()
+				gotFileBytes = data
+				continue
+			}
+			gotFields[part.FormName()] = string(data)
+		}
+		w.Header().Set("X-Request-Id", "req-edit-123")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"ZWRpdGVkLWJ5dGVz"}]}`))
+	}))
+	defer server.Close()
+
+	client := Client{BaseURL: server.URL, APIKey: "test-api-key", Model: "gpt-image-2", HTTPClient: server.Client()}
+	result, err := client.EditImage(context.Background(), "make it cinematic", "1024x1024", "reference.png", []byte("reference-bytes"))
+	if err != nil {
+		t.Fatalf("edit image: %v", err)
+	}
+
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/v1/images/edits" {
+		t.Fatalf("path = %q, want /v1/images/edits", gotPath)
+	}
+	if gotAuth != "Bearer test-api-key" {
+		t.Fatalf("authorization = %q, want bearer API key", gotAuth)
+	}
+	if !strings.HasPrefix(gotContentType, "multipart/form-data; boundary=") {
+		t.Fatalf("content-type = %q, want multipart", gotContentType)
+	}
+	wantFields := map[string]string{"model": "gpt-image-2", "prompt": "make it cinematic", "n": "1", "size": "1024x1024", "quality": "auto", "output_format": "png"}
+	for key, want := range wantFields {
+		if gotFields[key] != want {
+			t.Fatalf("field %s = %q, want %q", key, gotFields[key], want)
+		}
+	}
+	if gotFileName != "reference.png" {
+		t.Fatalf("file name = %q, want reference.png", gotFileName)
+	}
+	if string(gotFileBytes) != "reference-bytes" {
+		t.Fatalf("file bytes = %q, want reference-bytes", string(gotFileBytes))
+	}
+	if string(result.ImageBytes) != "edited-bytes" {
+		t.Fatalf("image bytes = %q, want edited-bytes", string(result.ImageBytes))
 	}
 }
 

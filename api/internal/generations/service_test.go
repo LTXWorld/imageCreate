@@ -130,6 +130,30 @@ func TestCreateTaskDebitsOneCredit(t *testing.T) {
 	}
 }
 
+func TestCreateTaskPersistsReferenceImagePath(t *testing.T) {
+	ctx, db := setupGenerationTestDB(t)
+	service := testService(db)
+	userID := insertGenerationTestUser(t, ctx, db, "service-reference-image", 2)
+
+	task, err := service.CreateTask(ctx, CreateTaskInput{
+		UserID:             userID,
+		Prompt:             "把参考图变成电影海报",
+		Ratio:              "1:1",
+		ReferenceImagePath: "references/task-reference.jpg",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	got, err := service.GetTaskForUser(ctx, userID, task.ID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if got.ReferenceImagePath != "references/task-reference.jpg" {
+		t.Fatalf("reference image path = %q, want references/task-reference.jpg", got.ReferenceImagePath)
+	}
+}
+
 func TestCreateTaskDebitsDailyFreeCreditsBeforePaidCredits(t *testing.T) {
 	ctx, db := setupGenerationTestDB(t)
 	service := testService(db)

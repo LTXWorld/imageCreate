@@ -87,6 +87,54 @@ describe("WorkspacePage", () => {
     });
   });
 
+  test("submits reference image in image-to-image mode", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      jsonResponse({
+        task: {
+          id: "task-reference-ui",
+          prompt: "电影海报",
+          ratio: "1:1",
+          size: "1024x1024",
+          status: "queued",
+          created_at: "2026-04-30T08:00:00Z",
+        },
+      }),
+    );
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "图生图" }));
+    const file = new File(["reference-bytes"], "reference.png", { type: "image/png" });
+    await userEvent.upload(screen.getByLabelText("参考图"), file);
+    await userEvent.type(screen.getByLabelText("提示词"), "电影海报");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init?.body).toBeInstanceOf(FormData);
+    const body = init?.body as FormData;
+    expect(body.get("prompt")).toBe("电影海报");
+    expect(body.get("ratio")).toBe("1:1");
+    expect(body.get("reference_image")).toBe(file);
+  });
+
+  test("rejects unsupported reference image type before submit", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() => jsonResponse({}));
+
+    render(<WorkspacePage user={user} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "图生图" }));
+    const file = new File(["bad"], "reference.gif", { type: "image/gif" });
+    await userEvent.upload(screen.getByLabelText("参考图"), file, { applyAccept: false });
+    await userEvent.type(screen.getByLabelText("提示词"), "电影海报");
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("请上传 PNG 或 JPEG 图片");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("submits prompt value that was filled without a React change event", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
