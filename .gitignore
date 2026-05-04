@@ -3,3 +3,5 @@
 api/storage/
 web/dist/
 web/node_modules/
+
+.worktrees/
