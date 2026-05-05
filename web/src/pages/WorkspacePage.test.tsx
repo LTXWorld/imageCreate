@@ -31,9 +31,9 @@ describe("WorkspacePage", () => {
     vi.restoreAllMocks();
   });
 
-  test("shows cancellation window and retention guidance", () => {
+  test("shows generation cost guidance", () => {
     render(<WorkspacePage user={user} />);
-    expect(screen.getByText("输入提示词，选择画面比例后开始生成。文生图消耗 1 点，图生图消耗 2 点；提交后短时间内可取消。生成图片保留 30 天。")).toBeInTheDocument();
+    expect(screen.getByText("输入提示词，选择画面比例后开始生成。文生图消耗 1 点，图生图消耗 2 点。")).toBeInTheDocument();
   });
 
   test("shows split credit balances", () => {
@@ -41,25 +41,25 @@ describe("WorkspacePage", () => {
 
     expect(screen.getByText("当前余额")).toBeInTheDocument();
     expect(screen.getByText("8 点")).toBeInTheDocument();
-    expect(screen.getByText("今日免费额度 5/5")).toBeInTheDocument();
-    expect(screen.getByText("付费额度 3")).toBeInTheDocument();
+    expect(screen.getByText("今日免费: 5/5")).toBeInTheDocument();
+    expect(screen.getByText("付费额度: 3")).toBeInTheDocument();
   });
 
   test("shows image-to-image credit cost", async () => {
     render(<WorkspacePage user={user} />);
 
-    expect(screen.getByText("本次消耗 1 点")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始生成 (1 点)" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "图生图" }));
 
-    expect(screen.getByText("本次消耗 2 点")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始生成 (2 点)" })).toBeInTheDocument();
   });
 
   test("shows private support contact guidance", () => {
     render(<WorkspacePage user={user} />);
 
     expect(screen.getByRole("region", { name: "专属服务" })).toBeInTheDocument();
-    expect(screen.getByText("加 QQ 或微信获取帮助")).toBeInTheDocument();
+    expect(screen.getByText("联系获取更多帮助")).toBeInTheDocument();
     expect(screen.getByText("QQ")).toBeInTheDocument();
     expect(screen.getByText("微信")).toBeInTheDocument();
   });
@@ -84,7 +84,7 @@ describe("WorkspacePage", () => {
 
     await userEvent.type(screen.getByLabelText("提示词"), "一只杯子");
     await userEvent.click(screen.getByRole("button", { name: "1:1" }));
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -117,7 +117,7 @@ describe("WorkspacePage", () => {
     const file = new File(["reference-bytes"], "reference.png", { type: "image/png" });
     await userEvent.upload(screen.getByLabelText("参考图"), file);
     await userEvent.type(screen.getByLabelText("提示词"), "电影海报");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
@@ -139,7 +139,7 @@ describe("WorkspacePage", () => {
     const file = new File(["bad"], "reference.gif", { type: "image/gif" });
     await userEvent.upload(screen.getByLabelText("参考图"), file, { applyAccept: false });
     await userEvent.type(screen.getByLabelText("提示词"), "电影海报");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("请上传 PNG 或 JPEG 图片");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -165,7 +165,7 @@ describe("WorkspacePage", () => {
 
     const promptInput = screen.getByLabelText("提示词") as HTMLTextAreaElement;
     promptInput.value = "浏览器填充的提示词";
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -184,9 +184,12 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "a".repeat(2001) } });
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
-    expect(screen.getByText("已超出 1 个字符")).toBeInTheDocument();
+    const promptField = screen.getByLabelText("提示词").closest(".field");
+    const promptCounter = promptField?.querySelector(".field-counter");
+    expect(promptCounter).toHaveTextContent("2001/2000");
+    expect(promptCounter).toHaveClass("over-limit");
     expect(screen.getByRole("alert")).toHaveTextContent("提示词不能超过 2000 个字符");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -209,7 +212,7 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} onUserRefresh={onUserRefresh} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "一只杯子");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     await waitFor(() => {
       expect(onUserRefresh).toHaveBeenCalledTimes(1);
@@ -247,7 +250,7 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "山谷" } });
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: /生成/ }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -305,7 +308,7 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} onUserRefresh={onUserRefresh} />);
 
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "山谷" } });
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: /生成/ }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -352,15 +355,15 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} onUserRefresh={onUserRefresh} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "写错的提示词");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
     await userEvent.click(await screen.findByRole("button", { name: "取消本次提交" }));
 
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/generations/task-cancel/cancel",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(await screen.findByText("已取消，本次额度已退回，可修改提示词后重新生成。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "生成" })).toBeEnabled();
+    expect(await screen.findByText("已取消，本次额度已退回。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /生成/ })).toBeEnabled();
     expect(onUserRefresh).toHaveBeenCalledTimes(2);
   });
 
@@ -381,9 +384,9 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "已经开始的提示词");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
-    expect(await screen.findByText("已开始生成，请等待结果。")).toBeInTheDocument();
+    expect(await screen.findByText("已开始生成，请保持页面打开，完成后会自动显示结果。")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消本次提交" })).not.toBeInTheDocument();
   });
 
@@ -406,7 +409,7 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "森林小屋" } });
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: /生成/ }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -436,7 +439,7 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "海上灯塔" } });
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: /生成/ }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -472,9 +475,9 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "海边");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
-    expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
+    expect(await screen.findByText("生成失败，点数已退回。")).toBeInTheDocument();
     expect(screen.queryByText("upstream internal details")).not.toBeInTheDocument();
   });
 
@@ -500,14 +503,14 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "海边" } });
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: /生成/ }));
     await act(async () => {
       await Promise.resolve();
     });
 
     expect(screen.getByRole("progressbar", { name: "生成进度" })).toHaveAttribute("aria-valuenow", "47");
     expect(screen.getByText("生成未完成")).toBeInTheDocument();
-    expect(screen.getByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
+    expect(screen.getByText("生成失败，点数已退回。")).toBeInTheDocument();
   });
 
   test("shows sanitized failure guidance for known safe error codes", async () => {
@@ -530,10 +533,10 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "海边");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
-    expect(await screen.findByText("生成失败，已退回 1 点，可调整提示词后重试。")).toBeInTheDocument();
-    expect(screen.getByText("提示词可能包含不支持生成的内容，请调整描述后重试。")).toBeInTheDocument();
+    expect(await screen.findByText("生成失败，点数已退回。")).toBeInTheDocument();
+    expect(screen.getByText(/提示词可能包含不支持生成的内容，请调整描述后重试。/)).toBeInTheDocument();
   });
 
   test("shows a download link after generation succeeds", async () => {
@@ -555,9 +558,9 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "星空城堡");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
-    const downloadLink = await screen.findByRole("link", { name: "下载图片" });
+    const downloadLink = await screen.findByRole("link", { name: "下载高清原图" });
     expect(downloadLink).toHaveAttribute("href", "/api/generations/task-5/image");
     expect(downloadLink).toHaveAttribute("download", "imagecreate-task-5-16-9.png");
   });
@@ -581,7 +584,7 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "星空城堡");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
     await userEvent.click(await screen.findByRole("button", { name: "预览图片：星空城堡" }));
 
     const dialog = screen.getByRole("dialog", { name: "图片预览" });
@@ -614,11 +617,11 @@ describe("WorkspacePage", () => {
     render(<WorkspacePage user={user} />);
 
     await userEvent.type(screen.getByLabelText("提示词"), "星空城堡");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     const progress = await screen.findByRole("progressbar", { name: "生成进度" });
     expect(progress).toHaveAttribute("aria-valuenow", "100");
     expect(screen.getByText("生成完成")).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "下载图片" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "下载高清原图" })).toBeInTheDocument();
   });
 });

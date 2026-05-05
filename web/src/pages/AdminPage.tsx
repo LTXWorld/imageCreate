@@ -624,6 +624,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                       <th>余额</th>
                       <th>免费额度</th>
                       <th>每日上限</th>
+                      <th>今日补额</th>
                       <th>模式</th>
                       <th>值</th>
                       <th>原因</th>
@@ -634,6 +635,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                     {users.map((item) => {
                       const draft = creditDrafts[item.id] ?? { amount: "", reason: "", mode: "increase" };
                       const dailyFreeLimitDraft = dailyFreeLimitDrafts[item.id] ?? String(item.dailyFreeCreditLimit);
+                      const dailyFreeBalanceDraft = dailyFreeBalanceDrafts[item.id] ?? "";
                       
                       return (
                         <tr key={item.id}>
@@ -657,6 +659,26 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                                 type="submit"
                               >
                                 更新
+                              </button>
+                            </form>
+                          </td>
+                          <td>
+                            <form onSubmit={(event) => void handleDailyFreeBalanceSubmit(event, item)} style={{ display: 'flex', gap: '4px' }}>
+                              <input
+                                aria-label="补今日免费额度"
+                                style={{ width: '60px', minHeight: '32px', padding: '4px 8px' }}
+                                min="0"
+                                onChange={(event) => updateDailyFreeBalanceDraft(item.id, event.target.value)}
+                                type="number"
+                                value={dailyFreeBalanceDraft}
+                              />
+                              <button
+                                className="secondary-button"
+                                style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
+                                disabled={busy === `daily-free-balance-${item.id}`}
+                                type="submit"
+                              >
+                                补额度
                               </button>
                             </form>
                           </td>
@@ -715,7 +737,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
             <div style={{ display: 'grid', gap: '32px' }}>
               <section className="admin-section panel glass-panel animate-fade-in" aria-label="任务审计">
                 <h3>任务审计</h3>
-                <div className="admin-metrics">
+                <div className="admin-metrics" aria-label="生图结果汇总">
                   <div className="admin-metric panel" style={{ background: '#fafffd' }}>
                     <span>总任务</span>
                     <strong>{generationSummary.total}</strong>
@@ -723,6 +745,14 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                   <div className="admin-metric panel" style={{ background: '#fafffd' }}>
                     <span>成功数</span>
                     <strong>{generationSummary.succeeded}</strong>
+                  </div>
+                  <div className="admin-metric panel" style={{ background: '#fafffd' }}>
+                    <span>失败数</span>
+                    <strong>{generationSummary.failed}</strong>
+                  </div>
+                  <div className="admin-metric panel" style={{ background: '#fafffd' }}>
+                    <span>进行中</span>
+                    <strong>{generationSummary.active}</strong>
                   </div>
                   <div className="admin-metric panel" style={{ background: '#fafffd' }}>
                     <span>成功率</span>
@@ -738,6 +768,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                   <label className="field" style={{ marginBottom: 0, minWidth: '160px' }}>
                     <span>用户筛选</span>
                     <select
+                      aria-label="筛选用户"
                       onChange={(event) => setGenerationUserFilter(event.target.value)}
                       value={generationUserFilter}
                     >
@@ -750,6 +781,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                   <label className="field" style={{ marginBottom: 0, minWidth: '160px' }}>
                     <span>状态筛选</span>
                     <select
+                      aria-label="筛选状态"
                       onChange={(event) => setGenerationStatusFilter(event.target.value as GenerationStatusFilter)}
                       value={generationStatusFilter}
                     >
@@ -768,21 +800,27 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                         <th>提示词</th>
                         <th>状态</th>
                         <th>尺寸</th>
+                        <th>失败原因</th>
                         <th>耗时</th>
                         <th>时间</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredGenerationTasks.map((task) => (
+                      {filteredGenerationTasks.length > 0 ? filteredGenerationTasks.map((task) => (
                         <tr key={task.id}>
                           <td><strong>{task.username}</strong></td>
                           <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.prompt}</td>
                           <td><span className={`status-badge ${task.status}`}>{taskStatusLabel(task.status)}</span></td>
                           <td>{task.size}</td>
+                          <td>{taskFailureReason(task)}</td>
                           <td>{formatLatency(task.latencyMs)}</td>
                           <td>{formatTime(task.createdAt)}</td>
                         </tr>
-                      ))}
+                      )) : (
+                        <tr>
+                          <td colSpan={7}>暂无匹配任务</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -822,6 +860,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                   <span>当前密码</span>
                   <input
                     autoComplete="current-password"
+                    name="current-password"
                     onChange={(event) => setOwnPasswordDraft((current) => ({ ...current, currentPassword: event.target.value }))}
                     required
                     type="password"
@@ -833,6 +872,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                   <input
                     autoComplete="new-password"
                     minLength={6}
+                    name="new-password"
                     onChange={(event) => setOwnPasswordDraft((current) => ({ ...current, newPassword: event.target.value }))}
                     required
                     type="password"
@@ -844,6 +884,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
                   <input
                     autoComplete="new-password"
                     minLength={6}
+                    name="confirm-password"
                     onChange={(event) => setOwnPasswordDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
                     required
                     type="password"

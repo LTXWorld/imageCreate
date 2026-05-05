@@ -41,7 +41,7 @@ describe("RegisterPage", () => {
     await userEvent.type(screen.getByLabelText("用户名"), "alice");
     await userEvent.type(screen.getByLabelText("密码"), "secret");
     await userEvent.type(screen.getByLabelText("邀请码"), "invite-1");
-    await userEvent.click(screen.getByRole("button", { name: "注册" }));
+    await userEvent.click(screen.getByRole("button", { name: /注册/ }));
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/auth/register",

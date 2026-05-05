@@ -14,7 +14,7 @@ describe("LoginPage", () => {
 
     expect(screen.getByLabelText("用户名")).toBeInTheDocument();
     expect(screen.getByLabelText("密码")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /登录/ })).toBeInTheDocument();
   });
 
   test("submits username and password to login API", async () => {
@@ -31,7 +31,7 @@ describe("LoginPage", () => {
 
     await userEvent.type(screen.getByLabelText("用户名"), "alice");
     await userEvent.type(screen.getByLabelText("密码"), "secret");
-    await userEvent.click(screen.getByRole("button", { name: "登录" }));
+    await userEvent.click(screen.getByRole("button", { name: /登录/ }));
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/auth/login",

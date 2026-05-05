@@ -265,11 +265,11 @@ describe("AdminPage", () => {
 
     render(<AdminPage user={adminUser} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
     const row = await screen.findByRole("row", { name: /alice/ });
     await userEvent.type(within(row).getByLabelText("调整 alice 的积分"), "3");
     await userEvent.type(within(row).getByLabelText("调整 alice 的原因"), "活动补偿");
-    await userEvent.click(within(row).getByRole("button", { name: "提交调整" }));
+    await userEvent.click(within(row).getByRole("button", { name: "提交" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -287,18 +287,18 @@ describe("AdminPage", () => {
 
     render(<AdminPage user={adminUser} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
     const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
     const row = await screen.findByRole("row", { name: /alice/ });
 
     expect(headers).toEqual([
       "用户名",
-      "当前余额",
-      "今日免费",
+      "余额",
+      "免费额度",
       "每日上限",
       "今日补额",
       "模式",
-      "调整值",
+      "值",
       "原因",
       "操作",
     ]);
@@ -311,11 +311,11 @@ describe("AdminPage", () => {
 
     render(<AdminPage user={adminUser} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
     const row = await screen.findByRole("row", { name: /alice/ });
     await userEvent.clear(within(row).getByLabelText("每日免费上限"));
     await userEvent.type(within(row).getByLabelText("每日免费上限"), "7");
-    await userEvent.click(within(row).getByRole("button", { name: "更新上限" }));
+    await userEvent.click(within(row).getByRole("button", { name: "更新" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -334,7 +334,7 @@ describe("AdminPage", () => {
 
     render(<AdminPage user={adminUser} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
     const row = await screen.findByRole("row", { name: /alice/ });
     await userEvent.clear(within(row).getByLabelText("补今日免费额度"));
     await userEvent.type(within(row).getByLabelText("补今日免费额度"), "3");
@@ -357,13 +357,13 @@ describe("AdminPage", () => {
 
     render(<AdminPage user={adminUser} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
     const row = await screen.findByRole("row", { name: /alice/ });
     await userEvent.selectOptions(within(row).getByLabelText("调整模式"), "decrease");
     await userEvent.clear(within(row).getByLabelText("调整 alice 的积分"));
     await userEvent.type(within(row).getByLabelText("调整 alice 的积分"), "3");
     await userEvent.type(within(row).getByLabelText("调整 alice 的原因"), "活动回收");
-    await userEvent.click(within(row).getByRole("button", { name: "提交调整" }));
+    await userEvent.click(within(row).getByRole("button", { name: "提交" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -394,7 +394,7 @@ describe("AdminPage", () => {
     await userEvent.type(currentPasswordInput, "old-password");
     await userEvent.type(newPasswordInput, "new-password");
     await userEvent.type(confirmPasswordInput, "new-password");
-    await userEvent.click(screen.getByRole("button", { name: "更新密码" }));
+    await userEvent.click(screen.getByRole("button", { name: "更新管理员密码" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -417,11 +417,11 @@ describe("AdminPage", () => {
     await userEvent.type(screen.getByLabelText("当前密码"), "old-password");
     await userEvent.type(screen.getByLabelText("新密码"), "new-password");
     await userEvent.type(screen.getByLabelText("确认新密码"), "new-password");
-    await userEvent.click(screen.getByRole("button", { name: "更新密码" }));
+    await userEvent.click(screen.getByRole("button", { name: "更新管理员密码" }));
 
     expect(await screen.findByText("密码已更新")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("tab", { name: "用户" }));
+    await userEvent.click(screen.getByRole("tab", { name: "用户管理" }));
 
     expect(screen.queryByText("密码已更新")).not.toBeInTheDocument();
   });
@@ -456,9 +456,9 @@ describe("AdminPage", () => {
 
     render(<AdminPage user={adminUser} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
 
-    expect(screen.getByText("点数规则：文生图扣 1 点，图生图扣 2 点，失败自动退回本次消耗点数。")).toBeInTheDocument();
+    expect(screen.getByText("文生图扣 1 点，图生图扣 2 点，失败自动退回。")).toBeInTheDocument();
   });
 
   test("does not render image links in audit task table", async () => {

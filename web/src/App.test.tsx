@@ -24,7 +24,7 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "登录账号" })).toBeInTheDocument();
     });
 
     const gallery = screen.getByLabelText("生成效果展示");
@@ -149,12 +149,12 @@ describe("App", () => {
     });
 
     await userEvent.type(screen.getByLabelText("提示词"), "一只杯子");
-    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    await userEvent.click(screen.getByRole("button", { name: /生成/ }));
 
     await waitFor(() => {
       expect(screen.getAllByText("7 点").length).toBeGreaterThan(0);
     });
-    expect(screen.getByText("今日免费额度 4/5")).toBeInTheDocument();
+    expect(screen.getByText("今日免费: 4/5")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/auth/me",
       expect.objectContaining({ credentials: "include" }),
@@ -263,11 +263,11 @@ describe("App", () => {
       expect(screen.getAllByText("99 点").length).toBeGreaterThan(0);
     });
 
-    await userEvent.click(await screen.findByRole("tab", { name: "额度" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "额度管理" }));
     const row = await screen.findByRole("row", { name: /admin/ });
     await userEvent.type(within(row).getByLabelText("调整 admin 的积分"), "3");
     await userEvent.type(within(row).getByLabelText("调整 admin 的原因"), "自测补额");
-    await userEvent.click(within(row).getByRole("button", { name: "提交调整" }));
+    await userEvent.click(within(row).getByRole("button", { name: "提交" }));
 
     await waitFor(() => {
       expect(screen.getAllByText("102 点").length).toBeGreaterThan(0);

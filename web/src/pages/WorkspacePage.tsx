@@ -35,6 +35,11 @@ type GenerationProgressState = {
   helperText: string;
 };
 
+type PreviewImage = {
+  alt: string;
+  src: string;
+};
+
 type WorkspacePageProps = {
   user: User;
   onHistoryClick?: () => void;
