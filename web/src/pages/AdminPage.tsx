@@ -1,5 +1,4 @@
 import { Fragment, FormEvent, useEffect, useState } from "react";
-
 import {
   api,
   normalizeAdminAuditLogs,
@@ -12,6 +11,8 @@ import {
   type AdminUser,
   type User,
 } from "../api/client";
+import "../styles/Admin.css";
+import "../styles/Components.css";
 
 type AdminPageProps = {
   user: User;
@@ -31,11 +32,11 @@ type DailyFreeLimitDraft = string;
 type DailyFreeBalanceDraft = string;
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
-  { id: "users", label: "用户" },
+  { id: "users", label: "用户管理" },
   { id: "invites", label: "邀请码" },
-  { id: "credits", label: "额度" },
-  { id: "security", label: "安全" },
+  { id: "credits", label: "额度管理" },
   { id: "audit", label: "审计" },
+  { id: "security", label: "安全" },
 ];
 
 const generationStatusFilterOptions: Array<{ value: GenerationStatusFilter; label: string }> = [
@@ -182,12 +183,12 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
 
   if (user.role !== "admin") {
     return (
-      <section className="admin-page" aria-labelledby="admin-title">
+      <section className="admin-page animate-fade-in" aria-labelledby="admin-title">
         <div className="section-heading">
           <p className="eyebrow">管理后台</p>
           <h2 id="admin-title">无权访问</h2>
         </div>
-        <div className="panel history-empty">当前账号不是管理员。</div>
+        <div className="panel glass-panel empty-state">当前账号不是管理员。</div>
       </section>
     );
   }
@@ -419,7 +420,7 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
   }
 
   return (
-    <section className="admin-page" aria-labelledby="admin-title">
+    <section className="admin-page animate-fade-in" aria-labelledby="admin-title">
       <div className="section-toolbar">
         <div className="section-heading">
           <p className="eyebrow">管理后台</p>
@@ -442,460 +443,421 @@ export function AdminPage({ user, onUserUpdate }: AdminPageProps) {
         ))}
       </div>
 
-      {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {notice ? <p className="form-success" role="status">{notice}</p> : null}
-      {loading ? <div className="panel history-empty">正在加载后台数据...</div> : null}
-
-      {!loading && activeTab === "users" ? (
-        <section className="admin-section panel" aria-labelledby="users-title">
-          <h3 id="users-title">用户管理</h3>
-          <div className="table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>用户名</th>
-                  <th>角色</th>
-                  <th>状态</th>
-                  <th>今日免费</th>
-                  <th>付费额度</th>
-                  <th>合计</th>
-                  <th>注册时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((item) => (
-                  <Fragment key={item.id}>
+      {error ? <p className="form-error" role="alert" style={{ marginBottom: '20px' }}>{error}</p> : null}
+      {notice ? <p className="status-badge succeeded" style={{ marginBottom: '20px', display: 'block', width: 'fit-content' }}>{notice}</p> : null}
+      
+      {loading ? (
+         <div className="empty-state">正在加载后台数据...</div>
+      ) : (
+        <>
+          {activeTab === "users" ? (
+            <section className="admin-section panel glass-panel animate-fade-in" aria-labelledby="users-title">
+              <h3 id="users-title">用户管理</h3>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
                     <tr>
-                      <td>{item.username}</td>
-                      <td>{item.role}</td>
-                      <td>{item.status}</td>
-                      <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
-                      <td>{item.paidCreditBalance}</td>
-                      <td>{item.creditBalance}</td>
-                      <td>{formatTime(item.createdAt)}</td>
-                      <td>
-                        <button
-                          className="secondary-button compact-button"
-                          disabled={busy === `status-${item.id}`}
-                          onClick={() => void handleStatusChange(item, item.status === "active" ? "disabled" : "active")}
-                          type="button"
-                        >
-                          {item.status === "active" ? "禁用" : "启用"}
-                        </button>
-                        <button
-                          className="secondary-button compact-button"
-                          onClick={() => {
-                            setResetPasswordUserId(item.id);
-                            setResetPasswordDraft("");
-                            setError("");
-                            setNotice("");
-                          }}
-                          type="button"
-                        >
-                          重置密码
-                        </button>
-                      </td>
+                      <th>用户名</th>
+                      <th>角色</th>
+                      <th>状态</th>
+                      <th>今日免费</th>
+                      <th>付费额度</th>
+                      <th>合计</th>
+                      <th>注册时间</th>
+                      <th>操作</th>
                     </tr>
-                    {resetPasswordUserId === item.id ? (
+                  </thead>
+                  <tbody>
+                    {users.map((item) => (
+                      <Fragment key={item.id}>
+                        <tr>
+                          <td><strong>{item.username}</strong></td>
+                          <td><span className="status-badge" style={{ background: '#eee' }}>{item.role}</span></td>
+                          <td><span className={`status-badge ${item.status === 'active' ? 'succeeded' : 'failed'}`}>{item.status}</span></td>
+                          <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
+                          <td>{item.paidCreditBalance}</td>
+                          <td><strong>{item.creditBalance}</strong></td>
+                          <td>{formatTime(item.createdAt)}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                className="secondary-button"
+                                style={{ minHeight: '32px', padding: '0 12px', fontSize: '13px' }}
+                                disabled={busy === `status-${item.id}`}
+                                onClick={() => void handleStatusChange(item, item.status === "active" ? "disabled" : "active")}
+                                type="button"
+                              >
+                                {item.status === "active" ? "禁用" : "启用"}
+                              </button>
+                              <button
+                                className="secondary-button"
+                                style={{ minHeight: '32px', padding: '0 12px', fontSize: '13px' }}
+                                onClick={() => {
+                                  setResetPasswordUserId(item.id);
+                                  setResetPasswordDraft("");
+                                  setError("");
+                                  setNotice("");
+                                }}
+                                type="button"
+                              >
+                                重置密码
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {resetPasswordUserId === item.id ? (
+                          <tr>
+                            <td colSpan={8} style={{ background: '#f8faf8' }}>
+                              <form
+                                style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}
+                                onSubmit={(event) => void handleResetPasswordSubmit(event, item)}
+                              >
+                                <label className="field" style={{ marginBottom: 0 }}>
+                                  <span style={{ fontSize: '12px' }}>{item.username} 的新密码</span>
+                                  <input
+                                    aria-label={`${item.username} 的新密码`}
+                                    autoComplete="new-password"
+                                    minLength={6}
+                                    name="reset-password"
+                                    onChange={(event) => setResetPasswordDraft(event.target.value)}
+                                    required
+                                    type="password"
+                                    value={resetPasswordDraft}
+                                    style={{ minHeight: '36px' }}
+                                  />
+                                </label>
+                                <button
+                                  className="primary-button"
+                                  style={{ minHeight: '36px' }}
+                                  disabled={busy === `reset-password-${item.id}`}
+                                  type="submit"
+                                >
+                                  确认重置
+                                </button>
+                                <button
+                                  className="secondary-button"
+                                  style={{ minHeight: '36px' }}
+                                  onClick={() => {
+                                    setResetPasswordUserId("");
+                                    setResetPasswordDraft("");
+                                  }}
+                                  type="button"
+                                >
+                                  取消
+                                </button>
+                              </form>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === "invites" ? (
+            <div className="admin-grid">
+              <form className="admin-section panel glass-panel compact-form animate-fade-in" onSubmit={handleCreateInvite}>
+                <h3>创建邀请码</h3>
+                <label className="field">
+                  <span>邀请码</span>
+                  <input
+                    onChange={(event) => setInviteCode(event.target.value)}
+                    placeholder="留空自动生成"
+                    value={inviteCode}
+                  />
+                </label>
+                <label className="field">
+                  <span>初始额度</span>
+                  <input
+                    min="0"
+                    onChange={(event) => setInviteCredits(event.target.value)}
+                    required
+                    type="number"
+                    value={inviteCredits}
+                  />
+                </label>
+                <button className="primary-button" disabled={busy === "invite"} type="submit">
+                  创建邀请码
+                </button>
+              </form>
+
+              <section className="admin-section panel glass-panel animate-fade-in" aria-label="邀请码列表">
+                <h3>邀请码列表</h3>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
                       <tr>
-                        <td colSpan={8}>
-                          <form
-                            className="inline-admin-form"
-                            onSubmit={(event) => void handleResetPasswordSubmit(event, item)}
-                          >
-                            <label className="field">
-                              <span>{item.username} 的新密码</span>
-                              <input
-                                aria-label={`${item.username} 的新密码`}
-                                autoComplete="new-password"
-                                minLength={6}
-                                name="reset-password"
-                                onChange={(event) => setResetPasswordDraft(event.target.value)}
-                                required
-                                type="password"
-                                value={resetPasswordDraft}
-                              />
-                            </label>
-                            <button
-                              className="primary-button compact-button"
-                              disabled={busy === `reset-password-${item.id}`}
-                              type="submit"
-                            >
-                              确认重置
-                            </button>
-                            <button
-                              className="secondary-button compact-button"
-                              onClick={() => {
-                                setResetPasswordUserId("");
-                                setResetPasswordDraft("");
-                              }}
-                              type="button"
-                            >
-                              取消
-                            </button>
-                          </form>
-                        </td>
+                        <th>邀请码</th>
+                        <th>初始额度</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
                       </tr>
-                    ) : null}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {!loading && activeTab === "invites" ? (
-        <section className="admin-grid">
-          <form className="admin-section panel compact-form" onSubmit={handleCreateInvite}>
-            <h3>创建邀请码</h3>
-            <label className="field">
-              <span>邀请码</span>
-              <input
-                onChange={(event) => setInviteCode(event.target.value)}
-                placeholder="留空自动生成"
-                value={inviteCode}
-              />
-            </label>
-            <label className="field">
-              <span>初始额度</span>
-              <input
-                min="0"
-                onChange={(event) => setInviteCredits(event.target.value)}
-                required
-                type="number"
-                value={inviteCredits}
-              />
-            </label>
-            <button className="primary-button" disabled={busy === "invite"} type="submit">
-              创建邀请码
-            </button>
-          </form>
-
-          <section className="admin-section panel" aria-label="邀请码列表">
-            <h3>邀请码列表</h3>
-            <div className="table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>邀请码</th>
-                    <th>初始额度</th>
-                    <th>状态</th>
-                    <th>创建时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invites.map((invite) => (
-                    <tr key={invite.id}>
-                      <td>{invite.code}</td>
-                      <td>{invite.initialCredits} 点</td>
-                      <td>{invite.status}</td>
-                      <td>{formatTime(invite.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {invites.map((invite) => (
+                        <tr key={invite.id}>
+                          <td><strong>{invite.code}</strong></td>
+                          <td>{invite.initialCredits} 点</td>
+                          <td><span className="status-badge succeeded">{invite.status}</span></td>
+                          <td>{formatTime(invite.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
-          </section>
-        </section>
-      ) : null}
+          ) : null}
 
-      {!loading && activeTab === "credits" ? (
-        <section className="admin-section panel" aria-labelledby="credits-title">
-          <h3 id="credits-title">额度管理</h3>
-          <p className="muted-text">点数规则：文生图扣 1 点，图生图扣 2 点，失败自动退回本次消耗点数。</p>
-          <div className="table-wrap">
-            <table className="admin-table credit-table">
-              <thead>
-                <tr>
-                  <th>用户名</th>
-                  <th>当前余额</th>
-                  <th>今日免费</th>
-                  <th>每日上限</th>
-                  <th>今日补额</th>
-                  <th>模式</th>
-                  <th>调整值</th>
-                  <th>原因</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((item) => {
-                  const draft = creditDrafts[item.id] ?? { amount: "", reason: "", mode: "increase" };
-                  const dailyFreeLimitDraft = dailyFreeLimitDrafts[item.id] ?? String(item.dailyFreeCreditLimit);
-                  const dailyFreeBalanceDraft = dailyFreeBalanceDrafts[item.id] ?? "";
-                  return (
-                    <tr key={item.id}>
-                      <td>{item.username}</td>
-                      <td>{item.creditBalance} 点</td>
-                      <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
-                      <td>
-                        <form onSubmit={(event) => void handleDailyFreeLimitSubmit(event, item)}>
-                          <input
-                            aria-label="每日免费上限"
-                            className="table-input number-input"
-                            min="0"
-                            onChange={(event) => updateDailyFreeLimitDraft(item.id, event.target.value)}
-                            type="number"
-                            value={dailyFreeLimitDraft}
-                          />
-                          <button
-                            className="secondary-button compact-button"
-                            disabled={busy === `daily-free-limit-${item.id}`}
-                            type="submit"
-                          >
-                            更新上限
-                          </button>
-                        </form>
-                      </td>
-                      <td>
-                        <form onSubmit={(event) => void handleDailyFreeBalanceSubmit(event, item)}>
-                          <input
-                            aria-label="补今日免费额度"
-                            className="table-input number-input"
-                            min="1"
-                            onChange={(event) => updateDailyFreeBalanceDraft(item.id, event.target.value)}
-                            type="number"
-                            value={dailyFreeBalanceDraft}
-                          />
-                          <button
-                            className="secondary-button compact-button"
-                            disabled={busy === `daily-free-balance-${item.id}`}
-                            type="submit"
-                          >
-                            补额度
-                          </button>
-                        </form>
-                      </td>
-                      <td>
-                        <select
-                          aria-label="调整模式"
-                          className="table-input"
-                          onChange={(event) => updateCreditDraft(item.id, { mode: event.target.value as CreditDraft["mode"] })}
-                          value={draft.mode}
-                        >
-                          <option value="increase">增加</option>
-                          <option value="decrease">扣减</option>
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          aria-label={`调整 ${item.username} 的积分`}
-                          className="table-input number-input"
-                          min="1"
-                          onChange={(event) => updateCreditDraft(item.id, { amount: event.target.value })}
-                          type="number"
-                          value={draft.amount}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          aria-label={`调整 ${item.username} 的原因`}
-                          className="table-input"
-                          onChange={(event) => updateCreditDraft(item.id, { reason: event.target.value })}
-                          type="text"
-                          value={draft.reason}
-                        />
-                      </td>
-                      <td>
-                        <form onSubmit={(event) => void handleCreditSubmit(event, item)}>
-                          <button
-                            className="primary-button compact-button"
-                            disabled={busy === `credits-${item.id}`}
-                            type="submit"
-                          >
-                            提交调整
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {!loading && activeTab === "security" ? (
-        <section className="admin-section panel" aria-labelledby="security-title">
-          <h3 id="security-title">账号安全</h3>
-          <form className="compact-form" onSubmit={handleOwnPasswordSubmit}>
-            <label className="field">
-              <span>当前密码</span>
-              <input
-                autoComplete="current-password"
-                name="current-password"
-                onChange={(event) => setOwnPasswordDraft((current) => ({
-                  ...current,
-                  currentPassword: event.target.value,
-                }))}
-                required
-                type="password"
-                value={ownPasswordDraft.currentPassword}
-              />
-            </label>
-            <label className="field">
-              <span>新密码</span>
-              <input
-                autoComplete="new-password"
-                minLength={6}
-                name="new-password"
-                onChange={(event) => setOwnPasswordDraft((current) => ({
-                  ...current,
-                  newPassword: event.target.value,
-                }))}
-                required
-                type="password"
-                value={ownPasswordDraft.newPassword}
-              />
-            </label>
-            <label className="field">
-              <span>确认新密码</span>
-              <input
-                autoComplete="new-password"
-                minLength={6}
-                name="confirm-password"
-                onChange={(event) => setOwnPasswordDraft((current) => ({
-                  ...current,
-                  confirmPassword: event.target.value,
-                }))}
-                required
-                type="password"
-                value={ownPasswordDraft.confirmPassword}
-              />
-            </label>
-            <button className="primary-button" disabled={busy === "own-password"} type="submit">
-              更新密码
-            </button>
-          </form>
-        </section>
-      ) : null}
-
-      {!loading && activeTab === "audit" ? (
-        <section className="admin-grid">
-          <section className="admin-section panel" aria-label="任务审计">
-            <h3 id="task-audit-title">任务审计</h3>
-            <div className="admin-metrics" aria-label="生图结果汇总">
-              <div className="admin-metric">
-                <span>总任务</span>
-                <strong>{generationSummary.total}</strong>
-              </div>
-              <div className="admin-metric">
-                <span>成功数</span>
-                <strong>{generationSummary.succeeded}</strong>
-              </div>
-              <div className="admin-metric">
-                <span>失败数</span>
-                <strong>{generationSummary.failed}</strong>
-              </div>
-              <div className="admin-metric">
-                <span>进行中</span>
-                <strong>{generationSummary.active}</strong>
-              </div>
-              <div className="admin-metric">
-                <span>成功率</span>
-                <strong>{generationSummary.successRate}%</strong>
-              </div>
-              <div className="admin-metric">
-                <span>平均耗时</span>
-                <strong>{formatLatency(generationSummary.averageLatencyMs)}</strong>
-              </div>
-            </div>
-            <div className="admin-filters" aria-label="任务筛选">
-              <label className="field compact-field">
-                <span>用户</span>
-                <select
-                  aria-label="筛选用户"
-                  onChange={(event) => setGenerationUserFilter(event.target.value)}
-                  value={generationUserFilter}
-                >
-                  <option value="all">全部用户</option>
-                  {users.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.username}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field compact-field">
-                <span>状态</span>
-                <select
-                  aria-label="筛选状态"
-                  onChange={(event) => setGenerationStatusFilter(event.target.value as GenerationStatusFilter)}
-                  value={generationStatusFilter}
-                >
-                  {generationStatusFilterOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>用户</th>
-                    <th>提示词</th>
-                    <th>状态</th>
-                    <th>失败原因</th>
-                    <th>尺寸</th>
-                    <th>耗时</th>
-                    <th>时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredGenerationTasks.map((task) => (
-                    <tr key={task.id}>
-                      <td>{task.username}</td>
-                      <td>{task.prompt}</td>
-                      <td>{taskStatusLabel(task.status)}</td>
-                      <td>{taskFailureReason(task)}</td>
-                      <td>{task.size}</td>
-                      <td>{formatLatency(task.latencyMs)}</td>
-                      <td>{formatTime(task.createdAt)}</td>
-                    </tr>
-                  ))}
-                  {filteredGenerationTasks.length === 0 ? (
+          {activeTab === "credits" ? (
+            <section className="admin-section panel glass-panel animate-fade-in" aria-labelledby="credits-title">
+              <h3 id="credits-title">额度管理</h3>
+              <p className="usage-note" style={{ marginBottom: '20px' }}>文生图扣 1 点，图生图扣 2 点，失败自动退回。</p>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
                     <tr>
-                      <td colSpan={7}>暂无匹配任务</td>
+                      <th>用户名</th>
+                      <th>余额</th>
+                      <th>免费额度</th>
+                      <th>每日上限</th>
+                      <th>模式</th>
+                      <th>值</th>
+                      <th>原因</th>
+                      <th>操作</th>
                     </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                  </thead>
+                  <tbody>
+                    {users.map((item) => {
+                      const draft = creditDrafts[item.id] ?? { amount: "", reason: "", mode: "increase" };
+                      const dailyFreeLimitDraft = dailyFreeLimitDrafts[item.id] ?? String(item.dailyFreeCreditLimit);
+                      
+                      return (
+                        <tr key={item.id}>
+                          <td><strong>{item.username}</strong></td>
+                          <td><strong>{item.creditBalance}</strong></td>
+                          <td>{item.dailyFreeCreditBalance}/{item.dailyFreeCreditLimit}</td>
+                          <td>
+                            <form onSubmit={(event) => void handleDailyFreeLimitSubmit(event, item)} style={{ display: 'flex', gap: '4px' }}>
+                              <input
+                                aria-label="每日免费上限"
+                                style={{ width: '60px', minHeight: '32px', padding: '4px 8px' }}
+                                min="0"
+                                onChange={(event) => updateDailyFreeLimitDraft(item.id, event.target.value)}
+                                type="number"
+                                value={dailyFreeLimitDraft}
+                              />
+                              <button
+                                className="secondary-button"
+                                style={{ minHeight: '32px', padding: '0 8px', fontSize: '12px' }}
+                                disabled={busy === `daily-free-limit-${item.id}`}
+                                type="submit"
+                              >
+                                更新
+                              </button>
+                            </form>
+                          </td>
+                          <td>
+                            <select
+                              aria-label="调整模式"
+                              style={{ minHeight: '32px', padding: '4px', borderRadius: '8px', border: '1px solid var(--color-border)' }}
+                              onChange={(event) => updateCreditDraft(item.id, { mode: event.target.value as CreditDraft["mode"] })}
+                              value={draft.mode}
+                            >
+                              <option value="increase">增加</option>
+                              <option value="decrease">扣减</option>
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              aria-label={`调整 ${item.username} 的积分`}
+                              style={{ width: '60px', minHeight: '32px', padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--color-border)' }}
+                              min="1"
+                              onChange={(event) => updateCreditDraft(item.id, { amount: event.target.value })}
+                              type="number"
+                              value={draft.amount}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              aria-label={`调整 ${item.username} 的原因`}
+                              style={{ width: '120px', minHeight: '32px', padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--color-border)' }}
+                              onChange={(event) => updateCreditDraft(item.id, { reason: event.target.value })}
+                              type="text"
+                              value={draft.reason}
+                            />
+                          </td>
+                          <td>
+                            <form onSubmit={(event) => void handleCreditSubmit(event, item)}>
+                              <button
+                                className="primary-button"
+                                style={{ minHeight: '32px', padding: '0 12px', fontSize: '13px' }}
+                                disabled={busy === `credits-${item.id}`}
+                                type="submit"
+                              >
+                                提交
+                              </button>
+                            </form>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
 
-          <section className="admin-section panel" aria-labelledby="audit-log-title">
-            <h3 id="audit-log-title">操作记录</h3>
-            <div className="table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>动作</th>
-                    <th>目标用户</th>
-                    <th>详情</th>
-                    <th>时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td>{log.action}</td>
-                      <td>{log.targetUserId ?? "-"}</td>
-                      <td>{metadataText(log.metadata)}</td>
-                      <td>{formatTime(log.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {activeTab === "audit" ? (
+            <div style={{ display: 'grid', gap: '32px' }}>
+              <section className="admin-section panel glass-panel animate-fade-in" aria-label="任务审计">
+                <h3>任务审计</h3>
+                <div className="admin-metrics">
+                  <div className="admin-metric panel" style={{ background: '#fafffd' }}>
+                    <span>总任务</span>
+                    <strong>{generationSummary.total}</strong>
+                  </div>
+                  <div className="admin-metric panel" style={{ background: '#fafffd' }}>
+                    <span>成功数</span>
+                    <strong>{generationSummary.succeeded}</strong>
+                  </div>
+                  <div className="admin-metric panel" style={{ background: '#fafffd' }}>
+                    <span>成功率</span>
+                    <strong>{generationSummary.successRate}%</strong>
+                  </div>
+                  <div className="admin-metric panel" style={{ background: '#fafffd' }}>
+                    <span>平均耗时</span>
+                    <strong>{formatLatency(generationSummary.averageLatencyMs)}</strong>
+                  </div>
+                </div>
+                
+                <div className="admin-filters">
+                  <label className="field" style={{ marginBottom: 0, minWidth: '160px' }}>
+                    <span>用户筛选</span>
+                    <select
+                      onChange={(event) => setGenerationUserFilter(event.target.value)}
+                      value={generationUserFilter}
+                    >
+                      <option value="all">全部用户</option>
+                      {users.map((item) => (
+                        <option key={item.id} value={item.id}>{item.username}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field" style={{ marginBottom: 0, minWidth: '160px' }}>
+                    <span>状态筛选</span>
+                    <select
+                      onChange={(event) => setGenerationStatusFilter(event.target.value as GenerationStatusFilter)}
+                      value={generationStatusFilter}
+                    >
+                      {generationStatusFilterOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="admin-table-wrap" style={{ marginTop: '24px' }}>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>用户</th>
+                        <th>提示词</th>
+                        <th>状态</th>
+                        <th>尺寸</th>
+                        <th>耗时</th>
+                        <th>时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredGenerationTasks.map((task) => (
+                        <tr key={task.id}>
+                          <td><strong>{task.username}</strong></td>
+                          <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.prompt}</td>
+                          <td><span className={`status-badge ${task.status}`}>{taskStatusLabel(task.status)}</span></td>
+                          <td>{task.size}</td>
+                          <td>{formatLatency(task.latencyMs)}</td>
+                          <td>{formatTime(task.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="admin-section panel glass-panel animate-fade-in" aria-labelledby="audit-log-title">
+                <h3 id="audit-log-title">操作记录</h3>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>动作</th>
+                        <th>详情</th>
+                        <th>时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td><strong>{log.action}</strong></td>
+                          <td>{metadataText(log.metadata)}</td>
+                          <td>{formatTime(log.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
-          </section>
-        </section>
-      ) : null}
+          ) : null}
+
+          {activeTab === "security" ? (
+            <section className="admin-section panel glass-panel animate-fade-in" aria-labelledby="security-title">
+              <h3 id="security-title">账号安全</h3>
+              <form className="compact-form" onSubmit={handleOwnPasswordSubmit} style={{ maxWidth: '400px' }}>
+                <label className="field">
+                  <span>当前密码</span>
+                  <input
+                    autoComplete="current-password"
+                    onChange={(event) => setOwnPasswordDraft((current) => ({ ...current, currentPassword: event.target.value }))}
+                    required
+                    type="password"
+                    value={ownPasswordDraft.currentPassword}
+                  />
+                </label>
+                <label className="field">
+                  <span>新密码</span>
+                  <input
+                    autoComplete="new-password"
+                    minLength={6}
+                    onChange={(event) => setOwnPasswordDraft((current) => ({ ...current, newPassword: event.target.value }))}
+                    required
+                    type="password"
+                    value={ownPasswordDraft.newPassword}
+                  />
+                </label>
+                <label className="field">
+                  <span>确认新密码</span>
+                  <input
+                    autoComplete="new-password"
+                    minLength={6}
+                    onChange={(event) => setOwnPasswordDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
+                    required
+                    type="password"
+                    value={ownPasswordDraft.confirmPassword}
+                  />
+                </label>
+                <button className="primary-button" disabled={busy === "own-password"} type="submit">
+                  更新管理员密码
+                </button>
+              </form>
+            </section>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }

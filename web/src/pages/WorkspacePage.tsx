@@ -1,5 +1,4 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
-
 import {
   api,
   generationApi,
@@ -9,6 +8,9 @@ import {
   type User,
 } from "../api/client";
 import { ImagePreviewDialog } from "../components/ImagePreviewDialog";
+import { PrivateSupportCard } from "../components/PrivateSupportCard";
+import "../styles/Workspace.css";
+import "../styles/Components.css";
 
 const ratios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const privateSupportConfig = {
@@ -31,11 +33,6 @@ type GenerationProgressState = {
   percent: number;
   label: string;
   helperText: string;
-};
-
-type PreviewImage = {
-  alt: string;
-  src: string;
 };
 
 type WorkspacePageProps = {
@@ -135,31 +132,6 @@ function GenerationProgress({ task, now }: { task: GenerationTask; now: number }
       </div>
       <p className="muted-text">{progress.helperText}</p>
     </div>
-  );
-}
-
-function PrivateSupportCard() {
-  const hasQQ = privateSupportConfig.qq.length > 0;
-  const hasWechat = privateSupportConfig.wechat.length > 0;
-
-  return (
-    <section className="private-support" aria-label="专属服务">
-      <div>
-        <p className="eyebrow">专属服务</p>
-        <h3>加 QQ 或微信获取帮助</h3>
-        <p className="support-copy">额度咨询、生成失败处理、低价AI会员独享账号购买请直接与下方联系。</p>
-      </div>
-      <dl className="support-list">
-        <div>
-          <dt>QQ</dt>
-          <dd>{hasQQ ? privateSupportConfig.qq : "待配置"}</dd>
-        </div>
-        <div>
-          <dt>微信</dt>
-          <dd>{hasWechat ? privateSupportConfig.wechat : "待配置"}</dd>
-        </div>
-      </dl>
-    </section>
   );
 }
 
@@ -322,7 +294,7 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
   const generationCreditCost = generationMode === "image" ? 2 : 1;
 
   return (
-    <section className="workspace-page" aria-labelledby="workspace-title">
+    <section className="workspace-page animate-fade-in" aria-labelledby="workspace-title">
       <div className="section-toolbar">
         <div className="section-heading">
           <p className="eyebrow">创作台</p>
@@ -334,17 +306,20 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
       </div>
 
       <div className="workspace-grid">
-        <form className="generator-form panel" onSubmit={handleSubmit}>
-          <div className="balance-row">
-            <span>当前余额</span>
-            <strong>{user.creditBalance} 点</strong>
+        <form className="generator-form panel glass-panel" onSubmit={handleSubmit}>
+          <div className="balance-card">
+            <div className="balance-row">
+              <span>当前余额</span>
+              <strong>{user.creditBalance} 点</strong>
+            </div>
+            <div className="balance-row" style={{ fontSize: '12px', opacity: 0.8 }}>
+              <span>今日免费: {user.dailyFreeCreditBalance}/{user.dailyFreeCreditLimit}</span>
+              <span>付费额度: {user.paidCreditBalance}</span>
+            </div>
           </div>
-          <div className="balance-row">
-            <span>今日免费额度 {user.dailyFreeCreditBalance}/{user.dailyFreeCreditLimit}</span>
-            <span>付费额度 {user.paidCreditBalance}</span>
-          </div>
+          
           <p className="usage-note">
-            输入提示词，选择画面比例后开始生成。文生图消耗 1 点，图生图消耗 2 点；提交后短时间内可取消。生成图片保留 30 天。
+            输入提示词，选择画面比例后开始生成。文生图消耗 1 点，图生图消耗 2 点。
           </p>
 
           <div className="mode-switch" role="group" aria-label="生成模式">
@@ -366,13 +341,11 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
             </button>
           </div>
 
-          <p className="field-help">本次消耗 {generationCreditCost} 点</p>
-
           {generationMode === "image" ? (
             <div className="reference-upload-panel">
               <label className="field-label-row" htmlFor="reference-image">
                 <span>参考图</span>
-                <span className="field-counter">PNG/JPEG · ≤5MB</span>
+                <span className="field-counter" style={{ fontSize: '11px' }}>PNG/JPEG · ≤5MB</span>
               </label>
               <input
                 accept="image/png,image/jpeg"
@@ -385,13 +358,12 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
               {referencePreviewURL ? (
                 <div className="reference-preview-wrap">
                   <img alt="参考图预览" className="reference-preview" src={referencePreviewURL} />
-                  {referenceImage ? <p className="reference-file-meta">{referenceImage.name}</p> : null}
-                  <button className="secondary-button" onClick={clearReferenceImage} type="button">
+                  <button className="secondary-button" onClick={clearReferenceImage} type="button" style={{ width: '100%', minHeight: '36px' }}>
                     移除参考图
                   </button>
                 </div>
               ) : (
-                <p className="field-help">上传一张参考图，再用提示词描述想生成的新画面。</p>
+                <p className="field-help" style={{ fontSize: '12px', marginTop: '4px' }}>上传一张参考图，再用提示词描述想生成的新画面。</p>
               )}
             </div>
           ) : null}
@@ -405,24 +377,18 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
             </span>
             <textarea
               aria-label="提示词"
-              aria-describedby="prompt-counter"
               name="prompt"
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="描述你想生成的画面"
+              placeholder="描述你想生成的画面..."
               required
-              rows={6}
+              rows={5}
               value={prompt}
+              disabled={disabled}
             />
           </label>
-          <p
-            className={isPromptTooLong ? "field-help over-limit" : "field-help"}
-            id="prompt-counter"
-          >
-            {isPromptTooLong ? `已超出 ${currentPromptLength - promptMaxLength} 个字符` : "最多 2000 个字符"}
-          </p>
 
           <fieldset className="ratio-control">
-            <legend>画面比例</legend>
+            <legend style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>画面比例</legend>
             <div className="segmented-control">
               {ratios.map((item) => (
                 <button
@@ -441,88 +407,86 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
           {error ? <p className="form-error" role="alert">{error}</p> : null}
 
           <button className="primary-button wide-button" disabled={disabled} type="submit">
-            {submitting ? "提交中..." : "生成"}
+            {submitting ? "提交中..." : `开始生成 (${generationCreditCost} 点)`}
           </button>
 
           <PrivateSupportCard />
         </form>
 
-        <section className="current-task panel" aria-label="当前任务">
+        <section className="current-task panel glass-panel animate-fade-in" aria-label="当前任务">
           <div className="task-header">
             <div>
-              <p className="eyebrow">当前任务</p>
-              <h3>{currentTask ? statusText(currentTask.status) : "等待提交"}</h3>
+              <p className="eyebrow">任务状态</p>
+              <h3>{currentTask ? statusText(currentTask.status) : "等待开始"}</h3>
             </div>
             {currentTask ? <span className={`status-badge ${currentTask.status}`}>{statusText(currentTask.status)}</span> : null}
           </div>
 
           {currentTask ? (
             <div className="task-detail">
-              <p className="task-prompt">{currentTask.prompt}</p>
+              <p className="task-prompt" style={{ fontStyle: 'italic', opacity: 0.9 }}>"{currentTask.prompt}"</p>
               <dl className="meta-list">
-                <div>
+                <div className="panel" style={{ padding: '10px' }}>
                   <dt>比例</dt>
                   <dd>{currentTask.ratio}</dd>
                 </div>
-                <div>
+                <div className="panel" style={{ padding: '10px' }}>
                   <dt>尺寸</dt>
                   <dd>{currentTask.size}</dd>
                 </div>
               </dl>
 
               {currentTask.status !== "canceled" ? <GenerationProgress task={currentTask} now={progressNow} /> : null}
-              {currentTask.status === "queued" ? (
-                <button
-                  className="secondary-button cancel-generation-button"
-                  disabled={canceling}
-                  onClick={handleCancel}
-                  type="button"
-                >
-                  {canceling ? "取消中..." : "取消本次提交"}
-                </button>
-              ) : null}
-              {currentTask.status === "running" ? (
-                <p className="muted-text">已开始生成，请等待结果。</p>
-              ) : null}
-              {currentTask.status === "canceled" ? (
-                <p className="muted-text">已取消，本次额度已退回，可修改提示词后重新生成。</p>
-              ) : null}
-              {currentTask.status === "failed" ? (
-                <>
-                  <p className="form-error" role="alert">
-                    生成失败，已退回 1 点，可调整提示词后重试。
-                  </p>
-                  {failureDetail ? <p className="muted-text">{failureDetail}</p> : null}
-                </>
-              ) : null}
-              {currentTask.status === "succeeded" && currentTask.imageUrl
-                ? (() => {
-                    const imageUrl: string = currentTask.imageUrl;
+              
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                {currentTask.status === "queued" ? (
+                  <button
+                    className="secondary-button cancel-generation-button"
+                    disabled={canceling}
+                    onClick={handleCancel}
+                    type="button"
+                  >
+                    {canceling ? "取消中..." : "取消本次提交"}
+                  </button>
+                ) : null}
+              </div>
 
-                    return (
-                      <>
-                        <button
-                          aria-label={`预览图片：${currentTask.prompt}`}
-                          className="image-preview-trigger"
-                          onClick={() => setPreviewImage({ alt: currentTask.prompt, src: imageUrl })}
-                          type="button"
-                        >
-                          <img className="result-preview" src={imageUrl} alt={currentTask.prompt} />
-                        </button>
-                        <a
-                          className="secondary-button download-button"
-                          download={generationImageFilename(currentTask)}
-                          href={imageUrl}
-                        >
-                          下载图片
-                        </a>
-                      </>
-                    );
-                  })()
-                : null}
+              {currentTask.status === "canceled" ? (
+                <p className="muted-text">已取消，本次额度已退回。</p>
+              ) : null}
+              
+              {currentTask.status === "failed" ? (
+                <div className="form-error" style={{ display: 'grid', gap: '4px' }}>
+                  <span>生成失败，点数已退回。</span>
+                  {failureDetail ? <span style={{ fontSize: '12px', opacity: 0.8 }}>原因: {failureDetail}</span> : null}
+                </div>
+              ) : null}
+
+              {currentTask.status === "succeeded" && currentTask.imageUrl ? (
+                <div className="animate-fade-in" style={{ display: 'grid', gap: '16px' }}>
+                  <button
+                    aria-label={`预览图片：${currentTask.prompt}`}
+                    className="image-preview-trigger"
+                    onClick={() => setPreviewImage({ alt: currentTask.prompt, src: currentTask.imageUrl! })}
+                    type="button"
+                  >
+                    <img className="result-preview" src={currentTask.imageUrl} alt={currentTask.prompt} />
+                  </button>
+                  <a
+                    className="primary-button download-button"
+                    download={generationImageFilename(currentTask)}
+                    href={currentTask.imageUrl}
+                  >
+                    下载高清原图
+                  </a>
+                </div>
+              ) : null}
             </div>
           ) : (
-            <div className="empty-state">填写提示词后开始生成。</div>
+            <div className="empty-state">
+               <p>在左侧填写提示词并点击生成</p>
+               <p style={{ fontSize: '13px', opacity: 0.7 }}>您的灵感将在此处绽放</p>
+            </div>
           )}
         </section>
       </div>

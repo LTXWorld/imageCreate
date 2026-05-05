@@ -1,13 +1,15 @@
-import { ImagePlus, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import { ImagePlus, LogOut, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { User } from "../api/client";
+import "../styles/Layout.css";
+import "../styles/Components.css";
 
 type LayoutProps = {
   children: ReactNode;
   user: User | null;
-  activeView: "login" | "register" | "workspace" | "admin";
-  onNavigate: (view: "login" | "register" | "workspace" | "admin") => void;
+  activeView: "login" | "register" | "workspace" | "admin" | "history";
+  onNavigate: (view: "login" | "register" | "workspace" | "admin" | "history") => void;
   onLogout?: () => void;
 };
 
@@ -18,6 +20,12 @@ export function Layout({
   onNavigate,
   onLogout,
 }: LayoutProps) {
+  const isAuthView = activeView === "login" || activeView === "register";
+
+  if (isAuthView) {
+    return <main>{children}</main>;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="主导航">
@@ -47,43 +55,27 @@ export function Layout({
               <span>后台</span>
             </button>
           ) : null}
-          {!user ? (
-            <>
-              <button
-                className={activeView === "login" ? "nav-item active" : "nav-item"}
-                type="button"
-                onClick={() => onNavigate("login")}
-              >
-                <UserRound size={18} aria-hidden="true" />
-                <span>登录</span>
-              </button>
-              <button
-                className={activeView === "register" ? "nav-item active" : "nav-item"}
-                type="button"
-                onClick={() => onNavigate("register")}
-              >
-                <ShieldCheck size={18} aria-hidden="true" />
-                <span>注册</span>
-              </button>
-            </>
-          ) : null}
         </nav>
+        
+        <div style={{ marginTop: 'auto' }}>
+           <button className="nav-item" type="button" onClick={onLogout}>
+              <LogOut size={18} aria-hidden="true" />
+              <span>退出登录</span>
+           </button>
+        </div>
       </aside>
 
       <div className="main-column">
         <header className="topbar">
-          <div>
+          <div className="animate-fade-in">
             <p className="eyebrow">图像生成工作台</p>
-            <h1>账号访问</h1>
+            <h1>{activeView === "workspace" ? "创作中心" : activeView === "admin" ? "管理后台" : "历史记录"}</h1>
           </div>
-          <div className="account-strip">
+          <div className="account-strip animate-fade-in">
             {user ? (
               <>
                 <span className="account-name">{user.username}</span>
                 <span className="credit-pill">{user.creditBalance} 点</span>
-                <button className="icon-button" type="button" onClick={onLogout} aria-label="退出登录">
-                  <LogOut size={18} aria-hidden="true" />
-                </button>
               </>
             ) : (
               <span className="muted-text">未登录</span>

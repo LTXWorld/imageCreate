@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
-
 import { api, normalizeAuthResponse, type User } from "../api/client";
+import "../styles/Auth.css";
+import "../styles/Components.css";
 
 type LoginPageProps = {
   onLogin?: (user: User) => void;
@@ -19,8 +20,12 @@ const showcaseImages = [
 function ShowcaseGallery() {
   return (
     <section className="login-showcase" aria-label="生成效果展示">
+      <div className="section-heading">
+         <p className="eyebrow">灵感画廊</p>
+         <h2 style={{ color: 'var(--color-jade-deep)' }}>探索 AI 的无限可能</h2>
+      </div>
       <div className="showcase-grid">
-        {showcaseImages.map((image) => (
+        {showcaseImages.map((image, i) => (
           <img
             className="showcase-image"
             key={image.src}
@@ -28,6 +33,7 @@ function ShowcaseGallery() {
             alt={image.alt}
             loading="lazy"
             decoding="async"
+            style={{ animationDelay: `${i * 0.1}s` }}
           />
         ))}
       </div>
@@ -61,50 +67,56 @@ export function LoginPage({ onLogin, onRegisterClick }: LoginPageProps) {
   }
 
   return (
-    <section className="login-home" aria-label="账号登录">
-      <section className="auth-surface login-card" aria-labelledby="login-title">
-        <div className="section-heading">
-          <p className="eyebrow">已有账号</p>
-          <h2 id="login-title">登录</h2>
-        </div>
-
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="field">
-            <span>用户名</span>
-            <input
-              autoComplete="username"
-              name="username"
-              onChange={(event) => setUsername(event.target.value)}
-              required
-              value={username}
-            />
-          </label>
-
-          <label className="field">
-            <span>密码</span>
-            <input
-              autoComplete="current-password"
-              name="password"
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              type="password"
-              value={password}
-            />
-          </label>
-
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
-
-          <div className="form-actions">
-            <button className="primary-button" disabled={loading} type="submit">
-              {loading ? "登录中..." : "登录"}
-            </button>
-            <button className="secondary-button" type="button" onClick={onRegisterClick}>
-              去注册
-            </button>
+    <div className="startup-shell">
+      <div className="login-home animate-fade-in">
+        <section className="auth-surface login-card panel glass-panel" aria-labelledby="login-title">
+          <div className="section-heading">
+            <p className="eyebrow">欢迎回来</p>
+            <h2 id="login-title">登录账号</h2>
           </div>
-        </form>
-      </section>
-      <ShowcaseGallery />
-    </section>
+
+          <form className="auth-form" onSubmit={handleSubmit}>
+            <label className="field">
+              <span>用户名</span>
+              <input
+                autoComplete="username"
+                name="username"
+                onChange={(event) => setUsername(event.target.value)}
+                required
+                value={username}
+                placeholder="请输入用户名"
+                disabled={loading}
+              />
+            </label>
+
+            <label className="field">
+              <span>密码</span>
+              <input
+                autoComplete="current-password"
+                name="password"
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                type="password"
+                value={password}
+                placeholder="请输入密码"
+                disabled={loading}
+              />
+            </label>
+
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+
+            <div className="form-actions">
+              <button className="primary-button" disabled={loading} type="submit">
+                {loading ? "登录中..." : "立即登录"}
+              </button>
+              <button className="secondary-button" type="button" onClick={onRegisterClick} disabled={loading}>
+                没有账号？去注册
+              </button>
+            </div>
+          </form>
+        </section>
+        <ShowcaseGallery />
+      </div>
+    </div>
   );
 }

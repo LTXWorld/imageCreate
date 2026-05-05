@@ -116,7 +116,7 @@ export function App() {
   return (
     <Layout
       user={user}
-      activeView={view === "history" ? "workspace" : view}
+      activeView={view}
       onNavigate={(nextView) => setView(nextView)}
       onLogout={handleLogout}
     >

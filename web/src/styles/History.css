@@ -1,0 +1,75 @@
+.history-list {
+  display: grid;
+  gap: 20px;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  padding: 20px;
+  animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.history-preview-trigger {
+  width: 140px;
+  height: 105px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: var(--shadow-spirit);
+  transition: all 0.3s ease;
+}
+
+.history-item:hover .history-preview {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-ethereal);
+}
+
+.history-main {
+  display: grid;
+  gap: 8px;
+}
+
+.history-time {
+  font-size: 13px;
+  color: var(--color-gold-muted);
+  font-weight: 600;
+}
+
+.history-prompt {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.history-actions {
+  display: flex;
+  gap: 12px;
+}
+
+@media (max-width: 760px) {
+  .history-item {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .history-preview-trigger {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4/3;
+  }
+}
