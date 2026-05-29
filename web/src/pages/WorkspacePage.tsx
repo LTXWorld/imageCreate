@@ -42,6 +42,8 @@ type PreviewImage = {
 
 type WorkspacePageProps = {
   user: User;
+  draft?: { prompt: string; ratio: string } | null;
+  onDraftConsumed?: () => void;
   onHistoryClick?: () => void;
   onUserRefresh?: () => void | Promise<unknown>;
 };
@@ -140,7 +142,7 @@ function GenerationProgress({ task, now }: { task: GenerationTask; now: number }
   );
 }
 
-export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: WorkspacePageProps) {
+export function WorkspacePage({ user, draft, onDraftConsumed, onHistoryClick, onUserRefresh }: WorkspacePageProps) {
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text");
@@ -158,6 +160,18 @@ export function WorkspacePage({ user, onHistoryClick, onUserRefresh }: Workspace
       setError(err instanceof Error ? err.message : "刷新额度失败");
     });
   }
+
+  useEffect(() => {
+    if (!draft) return;
+    setPrompt(draft.prompt);
+    if (ratios.includes(draft.ratio)) {
+      setRatio(draft.ratio);
+    }
+    setGenerationMode("text");
+    clearReferenceImage();
+    setError("");
+    onDraftConsumed?.();
+  }, [draft, onDraftConsumed]);
 
   useEffect(() => {
     if (!currentTask || !activeStatuses.has(currentTask.status)) return undefined;

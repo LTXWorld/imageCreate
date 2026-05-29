@@ -28,6 +28,8 @@ var (
 	ErrTaskNotActive       = errors.New("task is not active")
 	ErrTaskActive          = errors.New("task is active")
 	ErrTaskAlreadyStarted  = errors.New("task already started")
+	ErrInvalidTitle        = errors.New("invalid title")
+	ErrTitleTooLong        = errors.New("title too long")
 )
 
 type Service struct {
@@ -53,6 +55,8 @@ type Task struct {
 	ReferenceImagePath string
 	ErrorCode          string
 	ErrorMessage       string
+	IsFavorite         bool
+	Title              string
 	CreatedAt          time.Time
 	CompletedAt        sql.NullTime
 }
@@ -190,6 +194,71 @@ func (s Service) DeleteTaskForUser(ctx context.Context, userID, taskID string) e
 	return nil
 }
 
+func (s Service) UpdateTaskFavoriteForUser(ctx context.Context, userID, taskID string, favorite bool) (Task, error) {
+	task, err := scanTask(s.DB.QueryRow(ctx, `
+		UPDATE generation_tasks
+		SET is_favorite = $3
+		WHERE user_id = $1::uuid
+			AND id = $2::uuid
+			AND deleted_at IS NULL
+		RETURNING id::text,
+			user_id::text,
+			prompt,
+			size,
+			status,
+			COALESCE(image_path, ''),
+			COALESCE(reference_image_path, ''),
+			COALESCE(error_code, ''),
+			COALESCE(error_message, ''),
+			is_favorite,
+			COALESCE(title, ''),
+			created_at,
+			completed_at
+	`, userID, taskID, favorite))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, fmt.Errorf("update task favorite: %w", err)
+	}
+	return task, nil
+}
+
+func (s Service) UpdateTaskTitleForUser(ctx context.Context, userID, taskID, title string) (Task, error) {
+	normalizedTitle, err := validateTitle(title)
+	if err != nil {
+		return Task{}, err
+	}
+
+	task, err := scanTask(s.DB.QueryRow(ctx, `
+		UPDATE generation_tasks
+		SET title = NULLIF($3, '')
+		WHERE user_id = $1::uuid
+			AND id = $2::uuid
+			AND deleted_at IS NULL
+		RETURNING id::text,
+			user_id::text,
+			prompt,
+			size,
+			status,
+			COALESCE(image_path, ''),
+			COALESCE(reference_image_path, ''),
+			COALESCE(error_code, ''),
+			COALESCE(error_message, ''),
+			is_favorite,
+			COALESCE(title, ''),
+			created_at,
+			completed_at
+	`, userID, taskID, normalizedTitle))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, fmt.Errorf("update task title: %w", err)
+	}
+	return task, nil
+}
+
 func (s Service) CancelTaskForUser(ctx context.Context, userID, taskID string) (Task, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -236,6 +305,8 @@ func (s Service) CancelTaskForUser(ctx context.Context, userID, taskID string) (
 			COALESCE(reference_image_path, ''),
 			COALESCE(error_code, ''),
 			COALESCE(error_message, ''),
+			is_favorite,
+			COALESCE(title, ''),
 			created_at,
 			completed_at
 	`, userID, taskID, models.TaskCanceled))
@@ -333,6 +404,8 @@ const taskSelectSQL = `
 		COALESCE(reference_image_path, ''),
 		COALESCE(error_code, ''),
 		COALESCE(error_message, ''),
+		is_favorite,
+		COALESCE(title, ''),
 		created_at,
 		completed_at
 	FROM generation_tasks
@@ -354,6 +427,8 @@ func scanTask(scanner taskScanner) (Task, error) {
 		&task.ReferenceImagePath,
 		&task.ErrorCode,
 		&task.ErrorMessage,
+		&task.IsFavorite,
+		&task.Title,
 		&task.CreatedAt,
 		&task.CompletedAt,
 	)
@@ -371,6 +446,17 @@ func validatePrompt(prompt string) (string, error) {
 	}
 	if runeCount > 2000 {
 		return "", ErrPromptTooLong
+	}
+	return trimmed, nil
+}
+
+func validateTitle(title string) (string, error) {
+	trimmed := strings.TrimSpace(title)
+	if utf8.RuneCountInString(trimmed) > 80 {
+		return "", ErrTitleTooLong
+	}
+	if strings.ContainsAny(trimmed, "\r\n") {
+		return "", ErrInvalidTitle
 	}
 	return trimmed, nil
 }
@@ -477,6 +563,8 @@ func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model, ref
 			COALESCE(reference_image_path, ''),
 			COALESCE(error_code, ''),
 			COALESCE(error_message, ''),
+			is_favorite,
+			COALESCE(title, ''),
 			created_at,
 			completed_at
 	`, userID, prompt, size, models.TaskQueued, model, referenceImagePath).Scan(
@@ -489,6 +577,8 @@ func insertTask(ctx context.Context, tx pgx.Tx, userID, prompt, size, model, ref
 		&task.ReferenceImagePath,
 		&task.ErrorCode,
 		&task.ErrorMessage,
+		&task.IsFavorite,
+		&task.Title,
 		&task.CreatedAt,
 		&task.CompletedAt,
 	)

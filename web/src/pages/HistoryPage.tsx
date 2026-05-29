@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, generationImageFilename, normalizeGenerationList, type GenerationTask } from "../api/client";
+import { api, generationImageFilename, normalizeGenerationList, normalizeGenerationTask, type GenerationTask } from "../api/client";
 import { ImagePreviewDialog } from "../components/ImagePreviewDialog";
 import "../styles/History.css";
 import "../styles/Components.css";
 
 type HistoryPageProps = {
+  onReusePrompt?: (task: GenerationTask) => void;
   onWorkspaceClick?: () => void;
 };
 
@@ -32,11 +33,14 @@ function formatTime(value: string) {
   }).format(date);
 }
 
-export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
+export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProps) {
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const [updatingId, setUpdatingId] = useState("");
+  const [editingTitleId, setEditingTitleId] = useState("");
+  const [titleDraft, setTitleDraft] = useState("");
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
 
   async function loadHistory() {
@@ -55,6 +59,44 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
   useEffect(() => {
     void loadHistory();
   }, []);
+
+  function updateTaskInList(nextTask: GenerationTask) {
+    setTasks((currentTasks) => currentTasks.map((task) => task.id === nextTask.id ? nextTask : task));
+  }
+
+  async function handleFavorite(task: GenerationTask) {
+    setUpdatingId(task.id);
+    setError("");
+    try {
+      const body = await api<unknown>(`/api/generations/${task.id}/favorite`, {
+        method: "PATCH",
+        body: JSON.stringify({ favorite: !task.isFavorite }),
+      });
+      updateTaskInList(normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0]));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新收藏失败");
+    } finally {
+      setUpdatingId("");
+    }
+  }
+
+  async function handleSaveTitle(task: GenerationTask) {
+    setUpdatingId(task.id);
+    setError("");
+    try {
+      const body = await api<unknown>(`/api/generations/${task.id}/title`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: titleDraft }),
+      });
+      updateTaskInList(normalizeGenerationTask(body as Parameters<typeof normalizeGenerationTask>[0]));
+      setEditingTitleId("");
+      setTitleDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存标题失败");
+    } finally {
+      setUpdatingId("");
+    }
+  }
 
   async function handleDelete(id: string) {
     setDeletingId(id);
@@ -116,6 +158,37 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
 
               <div className="history-main">
                 <div className="history-time">{formatTime(task.createdAt)}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <strong>{task.title || "未命名作品"}</strong>
+                  {task.isFavorite ? <span aria-label="已收藏" title="已收藏">★</span> : null}
+                </div>
+                {editingTitleId === task.id ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleSaveTitle(task);
+                    }}
+                    style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}
+                  >
+                    <input
+                      aria-label="作品标题"
+                      maxLength={80}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      placeholder="输入作品标题"
+                      style={{ minHeight: '34px', flex: '1 1 180px' }}
+                      value={titleDraft}
+                    />
+                    <button className="secondary-button" disabled={updatingId === task.id} type="submit">保存</button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setEditingTitleId("");
+                        setTitleDraft("");
+                      }}
+                      type="button"
+                    >取消</button>
+                  </form>
+                ) : null}
                 <p className="history-prompt">{task.prompt}</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <span className="status-badge" style={{ background: 'var(--color-jade-light)', color: 'var(--color-jade-deep)', border: 'none' }}>{task.ratio}</span>
@@ -127,6 +200,38 @@ export function HistoryPage({ onWorkspaceClick }: HistoryPageProps) {
               </div>
 
               <div className="history-actions">
+                <button
+                  className="icon-button"
+                  disabled={updatingId === task.id}
+                  onClick={() => void handleFavorite(task)}
+                  type="button"
+                  title={task.isFavorite ? "取消收藏" : "收藏作品"}
+                  aria-label={task.isFavorite ? "取消收藏" : "收藏作品"}
+                  style={{ color: task.isFavorite ? '#d18b00' : undefined }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill={task.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                </button>
+                <button
+                  className="icon-button"
+                  onClick={() => {
+                    setEditingTitleId(task.id);
+                    setTitleDraft(task.title ?? "");
+                  }}
+                  type="button"
+                  title="编辑标题"
+                  aria-label="编辑标题"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+                <button
+                  className="icon-button"
+                  onClick={() => onReusePrompt?.(task)}
+                  type="button"
+                  title="复制提示词再生成"
+                  aria-label="复制提示词再生成"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
                 {task.status === "succeeded" && task.imageUrl ? (
                   <a
                     className="icon-button"

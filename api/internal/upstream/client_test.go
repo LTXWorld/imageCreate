@@ -248,6 +248,42 @@ func TestGenerateImageLogsUpstreamHTTPFailureMetadata(t *testing.T) {
 	}
 }
 
+func TestGenerateImageCapturesSafeUpstreamHTTPErrorMessage(t *testing.T) {
+	const apiKey = "sk-test-secret-key"
+	var logs bytes.Buffer
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-Id", "req-failed-message")
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error":{"code":"bad_gateway","message":"provider timeout for sk-test-secret-key"}}`, http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	client := Client{
+		BaseURL:    server.URL,
+		APIKey:     apiKey,
+		Model:      "gpt-image-2",
+		HTTPClient: server.Client(),
+		Logger:     log.New(&logs, "", 0),
+	}
+
+	result, err := client.GenerateImage(context.Background(), "draw a comet", "1024x1024")
+	if err == nil {
+		t.Fatal("generate image error = nil, want upstream error")
+	}
+	const want = "upstream HTTP 502: provider timeout for [redacted]"
+	if result.ErrorMessage != want {
+		t.Fatalf("error message = %q, want %q", result.ErrorMessage, want)
+	}
+	output := logs.String()
+	if !strings.Contains(output, `error_message="`+want+`"`) {
+		t.Fatalf("logs %q missing sanitized error message %q", output, want)
+	}
+	if strings.Contains(output, apiKey) || strings.Contains(result.ErrorMessage, apiKey) || strings.Contains(err.Error(), apiKey) {
+		t.Fatalf("upstream error leaked API key: result=%q err=%q logs=%q", result.ErrorMessage, err.Error(), output)
+	}
+}
+
 func TestGenerateImageDoesNotMapMalformedContentRequestToRejection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"code":"invalid_request_error","message":"content must be a string"}}`, http.StatusBadRequest)

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -23,6 +24,8 @@ var (
 	ErrRateLimited     = errors.New("rate_limited")
 	ErrTimeout         = errors.New("timeout")
 	ErrUpstream        = errors.New("upstream_error")
+
+	secretTokenPattern = regexp.MustCompile(`(?i)(sk-[A-Za-z0-9_-]+|bearer\s+[A-Za-z0-9._~+/-]+=*)`)
 )
 
 type Client struct {
@@ -168,7 +171,7 @@ func (c Client) doImageRequest(ctx context.Context, endpoint, contentType string
 	requestID := requestIDFromResponse(resp)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		result, handleErr := c.handleErrorResponse(resp, requestID)
-		logf(c.Logger, "upstream_request_finished endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=%s", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS, result.ErrorCode)
+		logf(c.Logger, "upstream_request_finished endpoint=%s model=%s size=%s status=%d request_id=%s elapsed_ms=%d error_code=%s error_message=%q", endpoint, c.Model, size, resp.StatusCode, requestID, elapsedMS, result.ErrorCode, result.ErrorMessage)
 		return result, handleErr
 	}
 	var decoded generateResponse
@@ -225,7 +228,58 @@ func (c Client) handleErrorResponse(resp *http.Response, requestID string) (Resu
 	}
 
 	message := sanitizedMessage(code)
+	if code == "upstream_error" {
+		message = c.sanitizedHTTPFailureMessage(resp.StatusCode, body)
+	}
 	return Result{RequestID: requestID, ErrorCode: code, ErrorMessage: message}, fmt.Errorf("%w: %s", sentinel, message)
+}
+
+func (c Client) sanitizedHTTPFailureMessage(status int, body []byte) string {
+	detail := upstreamErrorDetail(body)
+	detail = sanitizeUpstreamDetail(detail, c.APIKey)
+	if detail == "" {
+		return fmt.Sprintf("upstream HTTP %d", status)
+	}
+	return fmt.Sprintf("upstream HTTP %d: %s", status, detail)
+}
+
+func upstreamErrorDetail(body []byte) string {
+	var decoded upstreamErrorBody
+	if err := json.Unmarshal(body, &decoded); err == nil {
+		if decoded.Error.Message != "" {
+			return decoded.Error.Message
+		}
+		if decoded.Error.Code != "" {
+			return decoded.Error.Code
+		}
+		if decoded.Error.Type != "" {
+			return decoded.Error.Type
+		}
+	}
+	return string(body)
+}
+
+func sanitizeUpstreamDetail(detail, apiKey string) string {
+	detail = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, detail)
+	detail = strings.Join(strings.Fields(detail), " ")
+	if apiKey != "" {
+		detail = strings.ReplaceAll(detail, apiKey, "[redacted]")
+	}
+	detail = secretTokenPattern.ReplaceAllString(detail, "[redacted]")
+	return truncateRunes(detail, 240)
+}
+
+func truncateRunes(value string, max int) string {
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return string(runes[:max]) + "..."
 }
 
 func requestIDFromResponse(resp *http.Response) string {

@@ -27,6 +27,8 @@ type TaskService interface {
 	ListTasksForUser(ctx context.Context, userID string) ([]Task, error)
 	CancelTaskForUser(ctx context.Context, userID, taskID string) (Task, error)
 	DeleteTaskForUser(ctx context.Context, userID, taskID string) error
+	UpdateTaskFavoriteForUser(ctx context.Context, userID, taskID string, favorite bool) (Task, error)
+	UpdateTaskTitleForUser(ctx context.Context, userID, taskID, title string) (Task, error)
 }
 
 type Handlers struct {
@@ -178,6 +180,62 @@ func (h Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h Handlers) UpdateFavorite(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.CurrentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "请先登录")
+		return
+	}
+
+	taskID, ok := validTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Favorite bool `json:"favorite"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "请求格式错误")
+		return
+	}
+
+	task, err := h.Service.UpdateTaskFavoriteForUser(r.Context(), user.ID, taskID, req.Favorite)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]taskResponse{"task": newTaskResponse(task)})
+}
+
+func (h Handlers) UpdateTitle(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.CurrentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "请先登录")
+		return
+	}
+
+	taskID, ok := validTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "请求格式错误")
+		return
+	}
+
+	task, err := h.Service.UpdateTaskTitleForUser(r.Context(), user.ID, taskID, req.Title)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]taskResponse{"task": newTaskResponse(task)})
+}
+
 func (h Handlers) Cancel(w http.ResponseWriter, r *http.Request) {
 	user, ok := auth.CurrentUser(r)
 	if !ok {
@@ -239,25 +297,29 @@ type taskResponse struct {
 	Status      string     `json:"status"`
 	ErrorCode   string     `json:"error_code,omitempty"`
 	Message     string     `json:"message,omitempty"`
+	IsFavorite  bool       `json:"is_favorite"`
+	Title       string     `json:"title,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 func newTaskResponse(task Task) taskResponse {
 	resp := taskResponse{
-		ID:        task.ID,
-		Prompt:    task.Prompt,
-		Ratio:     ratioFromSize(task.Size),
-		Size:      task.Size,
-		Status:    task.Status,
-		CreatedAt: task.CreatedAt,
+		ID:         task.ID,
+		Prompt:     task.Prompt,
+		Ratio:      ratioFromSize(task.Size),
+		Size:       task.Size,
+		Status:     task.Status,
+		IsFavorite: task.IsFavorite,
+		Title:      task.Title,
+		CreatedAt:  task.CreatedAt,
 	}
 	if task.CompletedAt.Valid {
 		resp.CompletedAt = &task.CompletedAt.Time
 	}
 	if task.Status == models.TaskFailed {
 		resp.ErrorCode = stableErrorCode(task.ErrorCode)
-		resp.Message = userFacingFailureMessage(resp.ErrorCode)
+		resp.Message = userFacingFailureMessage(resp.ErrorCode, task.ErrorMessage)
 	}
 	return resp
 }
@@ -286,7 +348,7 @@ func stableErrorCode(code string) string {
 	return code
 }
 
-func userFacingFailureMessage(code string) string {
+func userFacingFailureMessage(code, detail string) string {
 	switch code {
 	case "content_rejected":
 		return contentRejectedMessage
@@ -295,8 +357,19 @@ func userFacingFailureMessage(code string) string {
 	case "timeout":
 		return "生成超时，本次额度已退回，请稍后重试。"
 	default:
+		if safeUpstreamFailureDetail(detail) != "" {
+			return "生成失败，本次额度已退回。上游原因：" + safeUpstreamFailureDetail(detail)
+		}
 		return "生成失败，本次额度已退回。"
 	}
+}
+
+func safeUpstreamFailureDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" || detail == "upstream image generation failed" {
+		return ""
+	}
+	return detail
 }
 
 func validTaskID(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -386,6 +459,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "任务不存在")
 	case errors.Is(err, ErrDisabledUser):
 		writeError(w, http.StatusForbidden, "disabled_user", "账号已被禁用")
+	case errors.Is(err, ErrInvalidTitle):
+		writeError(w, http.StatusBadRequest, "invalid_title", "标题不能包含换行")
+	case errors.Is(err, ErrTitleTooLong):
+		writeError(w, http.StatusBadRequest, "title_too_long", "标题不能超过 80 个字符")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "服务器错误")
 	}

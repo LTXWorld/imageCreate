@@ -1,0 +1,3 @@
+ALTER TABLE generation_tasks
+  ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN title TEXT;

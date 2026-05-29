@@ -20,6 +20,8 @@ export type GenerationTask = {
   message?: string;
   createdAt: string;
   completedAt?: string;
+  isFavorite: boolean;
+  title?: string;
 };
 
 export type AdminUser = User & {
@@ -89,10 +91,13 @@ type ApiGenerationTask = Omit<
   error_code?: string;
   error_message?: string;
   image_url?: string;
+  is_favorite?: boolean;
+  title?: string;
   createdAt?: string;
   completedAt?: string;
   errorCode?: string;
   imageUrl?: string;
+  isFavorite?: boolean;
 };
 
 type WrappedGenerationTask = {
@@ -268,6 +273,8 @@ export function normalizeGenerationTask(body: ApiGenerationTask | WrappedGenerat
     message: task.message ?? task.error_message,
     createdAt: task.createdAt ?? task.created_at ?? "",
     completedAt: task.completedAt ?? task.completed_at,
+    isFavorite: task.isFavorite ?? task.is_favorite ?? false,
+    title: task.title,
   };
 }
 

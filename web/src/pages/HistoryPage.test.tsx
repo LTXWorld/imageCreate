@@ -31,6 +31,8 @@ describe("HistoryPage", () => {
             image_url: "/api/generations/task-1/image",
             created_at: "2026-04-30T08:00:00Z",
             completed_at: "2026-04-30T08:01:00Z",
+            is_favorite: true,
+            title: "山谷作品",
           },
           {
             id: "task-2",
@@ -54,6 +56,8 @@ describe("HistoryPage", () => {
     });
 
     expect(screen.getByText("我的港口")).toBeInTheDocument();
+    expect(screen.getByText("山谷作品")).toBeInTheDocument();
+    expect(screen.getByLabelText("已收藏")).toBeInTheDocument();
     const downloadLink = screen.getByRole("link", { name: "下载图片" });
     expect(downloadLink).toHaveAttribute("href", "/api/generations/task-1/image");
     expect(downloadLink).toHaveAttribute("download", "imagecreate-task-1-16-9.png");
@@ -70,5 +74,64 @@ describe("HistoryPage", () => {
     expect(screen.queryByRole("dialog", { name: "图片预览" })).not.toBeInTheDocument();
     // The frontend can only render tasks returned by the user-scoped API.
     expect(screen.queryByText("其他用户的图片")).not.toBeInTheDocument();
+  });
+
+  test("supports favorite, title editing, and prompt reuse", async () => {
+    const onReusePrompt = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(await jsonResponse({
+        tasks: [
+          {
+            id: "task-1",
+            prompt: "我的山谷",
+            ratio: "16:9",
+            size: "1024x576",
+            status: "succeeded",
+            image_url: "/api/generations/task-1/image",
+            created_at: "2026-04-30T08:00:00Z",
+            is_favorite: false,
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(await jsonResponse({
+        task: {
+          id: "task-1",
+          prompt: "我的山谷",
+          ratio: "16:9",
+          size: "1024x576",
+          status: "succeeded",
+          image_url: "/api/generations/task-1/image",
+          created_at: "2026-04-30T08:00:00Z",
+          is_favorite: true,
+        },
+      }))
+      .mockResolvedValueOnce(await jsonResponse({
+        task: {
+          id: "task-1",
+          prompt: "我的山谷",
+          ratio: "16:9",
+          size: "1024x576",
+          status: "succeeded",
+          image_url: "/api/generations/task-1/image",
+          created_at: "2026-04-30T08:00:00Z",
+          is_favorite: true,
+          title: "新标题",
+        },
+      }));
+
+    render(<HistoryPage onReusePrompt={onReusePrompt} />);
+
+    await waitFor(() => expect(screen.getByText("我的山谷")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "收藏作品" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "取消收藏" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑标题" }));
+    await userEvent.type(screen.getByLabelText("作品标题"), "新标题");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.getByText("新标题")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "复制提示词再生成" }));
+    expect(onReusePrompt).toHaveBeenCalledWith(expect.objectContaining({ prompt: "我的山谷", ratio: "16:9" }));
   });
 });

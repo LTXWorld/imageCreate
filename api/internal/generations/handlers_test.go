@@ -37,6 +37,8 @@ func setupGenerationHandlerTest(t *testing.T) (context.Context, *pgxpool.Pool, I
 		r.Get("/api/generations", handlers.List)
 		r.Get("/api/generations/{id}", handlers.Get)
 		r.Post("/api/generations/{id}/cancel", handlers.Cancel)
+		r.Patch("/api/generations/{id}/favorite", handlers.UpdateFavorite)
+		r.Patch("/api/generations/{id}/title", handlers.UpdateTitle)
 		r.Delete("/api/generations/{id}", handlers.Delete)
 		r.Get("/api/generations/{id}/image", handlers.Image)
 	})
@@ -273,6 +275,86 @@ func TestGenerationFailureMessageIsChinese(t *testing.T) {
 	}
 }
 
+func TestGenerationFailureMessageIncludesSafeUpstreamDetail(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-upstream-detail", 1)
+
+	var taskID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model, error_code, error_message)
+		VALUES ($1, 'prompt', '1024x1024', $2, 'test-image-model', 'upstream_error', 'upstream HTTP 502: provider timeout')
+		RETURNING id::text
+	`, userID, models.TaskFailed).Scan(&taskID); err != nil {
+		t.Fatalf("insert failed task: %v", err)
+	}
+
+	req := authenticatedJSONRequest(t, http.MethodGet, "/api/generations/"+taskID, "", userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp struct {
+		Task struct {
+			ErrorCode string `json:"error_code"`
+			Message   string `json:"message"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	const want = "生成失败，本次额度已退回。上游原因：upstream HTTP 502: provider timeout"
+	if resp.Task.ErrorCode != "upstream_error" || resp.Task.Message != want {
+		t.Fatalf("failure response = %+v, want upstream detail message", resp.Task)
+	}
+}
+
+func TestUpdateGenerationFavoriteAndTitle(t *testing.T) {
+	ctx, db, _, handler := setupGenerationHandlerTest(t)
+	userID := insertGenerationTestUser(t, ctx, db, "handler-artwork-meta", 1)
+
+	var taskID string
+	if err := db.QueryRow(ctx, `
+		INSERT INTO generation_tasks (user_id, prompt, size, status, upstream_model)
+		VALUES ($1, 'prompt', '1024x1024', $2, 'test-image-model')
+		RETURNING id::text
+	`, userID, models.TaskSucceeded).Scan(&taskID); err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+
+	favoriteReq := authenticatedJSONRequest(t, http.MethodPatch, "/api/generations/"+taskID+"/favorite", `{"favorite":true}`, userID)
+	favoriteRec := httptest.NewRecorder()
+	handler.ServeHTTP(favoriteRec, favoriteReq)
+	if favoriteRec.Code != http.StatusOK {
+		t.Fatalf("favorite status = %d, want %d; body=%s", favoriteRec.Code, http.StatusOK, favoriteRec.Body.String())
+	}
+	if !strings.Contains(favoriteRec.Body.String(), `"is_favorite":true`) {
+		t.Fatalf("favorite response = %s, want is_favorite true", favoriteRec.Body.String())
+	}
+
+	titleReq := authenticatedJSONRequest(t, http.MethodPatch, "/api/generations/"+taskID+"/title", `{"title":"  山谷作品  "}`, userID)
+	titleRec := httptest.NewRecorder()
+	handler.ServeHTTP(titleRec, titleReq)
+	if titleRec.Code != http.StatusOK {
+		t.Fatalf("title status = %d, want %d; body=%s", titleRec.Code, http.StatusOK, titleRec.Body.String())
+	}
+
+	var resp struct {
+		Task struct {
+			Title      string `json:"title"`
+			IsFavorite bool   `json:"is_favorite"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(titleRec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode title response: %v", err)
+	}
+	if resp.Task.Title != "山谷作品" || !resp.Task.IsFavorite {
+		t.Fatalf("task metadata = %+v, want trimmed title and favorite", resp.Task)
+	}
+}
+
 func TestCancelGenerationReturnsCanceledTask(t *testing.T) {
 	ctx, db, _, handler := setupGenerationHandlerTest(t)
 	userID := insertGenerationTestUser(t, ctx, db, "handler-cancel", 1)
@@ -405,6 +487,19 @@ func TestGenerationFailureMessagesUseRefundWording(t *testing.T) {
 				t.Fatalf("message = %q, want %q", resp.Message, tc.want)
 			}
 		})
+	}
+}
+
+func TestGenerationFailureResponseIncludesSafeUpstreamDetail(t *testing.T) {
+	resp := newTaskResponse(Task{
+		Status:       models.TaskFailed,
+		ErrorCode:    "upstream_error",
+		ErrorMessage: "upstream HTTP 502: provider timeout",
+	})
+
+	const want = "生成失败，本次额度已退回。上游原因：upstream HTTP 502: provider timeout"
+	if resp.Message != want {
+		t.Fatalf("message = %q, want %q", resp.Message, want)
 	}
 }
 

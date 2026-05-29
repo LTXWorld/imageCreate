@@ -16,6 +16,7 @@ export function App() {
   const [view, setView] = useState<View>("login");
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [workspaceDraft, setWorkspaceDraft] = useState<{ prompt: string; ratio: string } | null>(null);
 
   const refreshCurrentUser = useCallback(async () => {
     const body = await api<unknown>("/api/auth/me");
@@ -93,7 +94,13 @@ export function App() {
       onAuthenticated={handleAuthenticated}
       onUnauthenticated={handleUnauthenticated}
     >
-      <HistoryPage onWorkspaceClick={() => setView("workspace")} />
+      <HistoryPage
+        onReusePrompt={(task) => {
+          setWorkspaceDraft({ prompt: task.prompt, ratio: task.ratio });
+          setView("workspace");
+        }}
+        onWorkspaceClick={() => setView("workspace")}
+      />
     </RequireAuth>
   ) : view === "workspace" ? (
     <RequireAuth
@@ -104,6 +111,8 @@ export function App() {
       {user ? (
         <WorkspacePage
           user={user}
+          draft={workspaceDraft}
+          onDraftConsumed={() => setWorkspaceDraft(null)}
           onHistoryClick={() => setView("history")}
           onUserRefresh={refreshCurrentUser}
         />
