@@ -16,7 +16,7 @@ export function App() {
   const [view, setView] = useState<View>("login");
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [workspaceDraft, setWorkspaceDraft] = useState<{ prompt: string; ratio: string } | null>(null);
+  const [workspaceDraft, setWorkspaceDraft] = useState<{ prompt: string; ratio: string; imageUrl?: string } | null>(null);
 
   const refreshCurrentUser = useCallback(async () => {
     const body = await api<unknown>("/api/auth/me");
@@ -95,6 +95,10 @@ export function App() {
       onUnauthenticated={handleUnauthenticated}
     >
       <HistoryPage
+        onReuseImage={(task) => {
+          setWorkspaceDraft({ prompt: task.prompt, ratio: task.ratio, imageUrl: task.imageUrl });
+          setView("workspace");
+        }}
         onReusePrompt={(task) => {
           setWorkspaceDraft({ prompt: task.prompt, ratio: task.ratio });
           setView("workspace");

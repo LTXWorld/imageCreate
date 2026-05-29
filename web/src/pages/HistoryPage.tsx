@@ -1,17 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, generationImageFilename, normalizeGenerationList, normalizeGenerationTask, type GenerationTask } from "../api/client";
-import { ImagePreviewDialog } from "../components/ImagePreviewDialog";
+import { ArtworkDetailDialog } from "../components/ArtworkDetailDialog";
 import "../styles/History.css";
 import "../styles/Components.css";
 
 type HistoryPageProps = {
+  onReuseImage?: (task: GenerationTask) => void;
   onReusePrompt?: (task: GenerationTask) => void;
   onWorkspaceClick?: () => void;
-};
-
-type PreviewImage = {
-  alt: string;
-  src: string;
 };
 
 function statusText(status: GenerationTask["status"]) {
@@ -33,7 +29,7 @@ function formatTime(value: string) {
   }).format(date);
 }
 
-export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProps) {
+export function HistoryPage({ onReuseImage, onReusePrompt, onWorkspaceClick }: HistoryPageProps) {
   const [tasks, setTasks] = useState<GenerationTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -41,7 +37,8 @@ export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProp
   const [updatingId, setUpdatingId] = useState("");
   const [editingTitleId, setEditingTitleId] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
-  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "favorite" | GenerationTask["status"]>("all");
+  const [detailTaskId, setDetailTaskId] = useState("");
 
   async function loadHistory() {
     setError("");
@@ -111,6 +108,13 @@ export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProp
     }
   }
 
+  const filteredTasks = tasks.filter((task) => {
+    if (statusFilter === "all") return true;
+    if (statusFilter === "favorite") return task.isFavorite;
+    return task.status === statusFilter;
+  });
+  const detailTask = tasks.find((task) => task.id === detailTaskId) ?? null;
+
   return (
     <section className="history-page animate-fade-in" aria-labelledby="history-title">
       <div className="section-toolbar">
@@ -122,6 +126,26 @@ export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProp
         <button className="secondary-button" type="button" onClick={onWorkspaceClick}>
           返回创作台
         </button>
+      </div>
+
+      <div className="panel glass-panel" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }} role="group" aria-label="历史筛选">
+        {[
+          ["all", "全部"],
+          ["favorite", "已收藏"],
+          ["succeeded", "已完成"],
+          ["failed", "失败"],
+          ["canceled", "已取消"],
+        ].map(([value, label]) => (
+          <button
+            aria-pressed={statusFilter === value}
+            className={statusFilter === value ? "segment active" : "segment"}
+            key={value}
+            onClick={() => setStatusFilter(value as typeof statusFilter)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {error ? <p className="form-error" role="alert" style={{ marginBottom: '20px' }}>{error}</p> : null}
@@ -137,23 +161,33 @@ export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProp
               去生成一张
            </button>
         </div>
+      ) : filteredTasks.length === 0 ? (
+        <div className="empty-state">
+           <p>当前筛选下暂无作品</p>
+        </div>
       ) : (
         <div className="history-list">
-          {tasks.map((task) => (
+          {filteredTasks.map((task) => (
             <article className="history-item panel glass-panel" key={task.id}>
               {task.status === "succeeded" && task.imageUrl ? (
                 <button
-                  aria-label={`预览图片：${task.prompt}`}
+                  aria-label={`查看作品详情：${task.prompt}`}
                   className="history-preview-trigger"
-                  onClick={() => setPreviewImage({ alt: task.prompt, src: task.imageUrl! })}
+                  onClick={() => setDetailTaskId(task.id)}
                   type="button"
                 >
                   <img className="history-preview" src={task.imageUrl} alt={task.prompt} />
                 </button>
               ) : (
-                <div className="history-preview-trigger" style={{ display: 'grid', placeItems: 'center', background: '#f8faf8', borderRadius: '12px' }}>
+                <button
+                  aria-label={`查看作品详情：${task.prompt}`}
+                  className="history-preview-trigger"
+                  onClick={() => setDetailTaskId(task.id)}
+                  style={{ display: 'grid', placeItems: 'center', background: '#f8faf8', borderRadius: '12px', border: 'none' }}
+                  type="button"
+                >
                    <span className={`status-badge ${task.status}`}>{statusText(task.status)}</span>
-                </div>
+                </button>
               )}
 
               <div className="history-main">
@@ -233,6 +267,17 @@ export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProp
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 </button>
                 {task.status === "succeeded" && task.imageUrl ? (
+                  <button
+                    className="icon-button"
+                    onClick={() => onReuseImage?.(task)}
+                    type="button"
+                    title="作为参考图再创作"
+                    aria-label="作为参考图再创作"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M16 3h5v5"/></svg>
+                  </button>
+                ) : null}
+                {task.status === "succeeded" && task.imageUrl ? (
                   <a
                     className="icon-button"
                     download={generationImageFilename(task)}
@@ -258,11 +303,14 @@ export function HistoryPage({ onReusePrompt, onWorkspaceClick }: HistoryPageProp
         </div>
       )}
 
-      {previewImage ? (
-        <ImagePreviewDialog
-          alt={previewImage.alt}
-          onClose={() => setPreviewImage(null)}
-          src={previewImage.src}
+      {detailTask ? (
+        <ArtworkDetailDialog
+          onClose={() => setDetailTaskId("")}
+          onFavorite={(task) => void handleFavorite(task)}
+          onReuseImage={onReuseImage}
+          onReusePrompt={onReusePrompt}
+          task={detailTask}
+          updating={updatingId === detailTask.id}
         />
       ) : null}
     </section>

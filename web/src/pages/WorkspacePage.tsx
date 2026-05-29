@@ -42,7 +42,7 @@ type PreviewImage = {
 
 type WorkspacePageProps = {
   user: User;
-  draft?: { prompt: string; ratio: string } | null;
+  draft?: { prompt: string; ratio: string; imageUrl?: string } | null;
   onDraftConsumed?: () => void;
   onHistoryClick?: () => void;
   onUserRefresh?: () => void | Promise<unknown>;
@@ -148,6 +148,7 @@ export function WorkspacePage({ user, draft, onDraftConsumed, onHistoryClick, on
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text");
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [referencePreviewURL, setReferencePreviewURL] = useState("");
+  const [loadingDraftImage, setLoadingDraftImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [currentTask, setCurrentTask] = useState<GenerationTask | null>(null);
@@ -163,14 +164,52 @@ export function WorkspacePage({ user, draft, onDraftConsumed, onHistoryClick, on
 
   useEffect(() => {
     if (!draft) return;
-    setPrompt(draft.prompt);
-    if (ratios.includes(draft.ratio)) {
-      setRatio(draft.ratio);
+    const nextDraft = draft;
+    let canceled = false;
+
+    async function applyDraft() {
+      setPrompt(nextDraft.prompt);
+      if (ratios.includes(nextDraft.ratio)) {
+        setRatio(nextDraft.ratio);
+      }
+      setError("");
+
+      if (!nextDraft.imageUrl) {
+        setGenerationMode("text");
+        clearReferenceImage();
+        onDraftConsumed?.();
+        return;
+      }
+
+      setGenerationMode("image");
+      setLoadingDraftImage(true);
+      try {
+        const response = await fetch(nextDraft.imageUrl, { credentials: "include" });
+        if (!response.ok) throw new Error("读取历史图片失败");
+        const blob = await response.blob();
+        const file = new File([blob], "history-reference.png", { type: blob.type || "image/png" });
+        if (canceled) return;
+        setReferenceImage(file);
+        setReferencePreviewURL((currentURL) => {
+          if (currentURL) URL.revokeObjectURL(currentURL);
+          return URL.createObjectURL(file);
+        });
+      } catch (err) {
+        if (!canceled) {
+          setError(err instanceof Error ? err.message : "读取历史图片失败");
+        }
+      } finally {
+        if (!canceled) {
+          setLoadingDraftImage(false);
+          onDraftConsumed?.();
+        }
+      }
     }
-    setGenerationMode("text");
-    clearReferenceImage();
-    setError("");
-    onDraftConsumed?.();
+
+    void applyDraft();
+    return () => {
+      canceled = true;
+    };
   }, [draft, onDraftConsumed]);
 
   useEffect(() => {
@@ -374,6 +413,7 @@ export function WorkspacePage({ user, draft, onDraftConsumed, onHistoryClick, on
                 onChange={handleReferenceImageChange}
                 type="file"
               />
+              {loadingDraftImage ? <p className="field-help" style={{ fontSize: '12px', marginTop: '4px' }}>正在载入历史图片作为参考图...</p> : null}
               {referencePreviewURL ? (
                 <div className="reference-preview-wrap">
                   <img alt="参考图预览" className="reference-preview" src={referencePreviewURL} />
@@ -425,7 +465,7 @@ export function WorkspacePage({ user, draft, onDraftConsumed, onHistoryClick, on
 
           {error ? <p className="form-error" role="alert">{error}</p> : null}
 
-          <button className="primary-button wide-button" disabled={disabled} type="submit">
+          <button className="primary-button wide-button" disabled={disabled || loadingDraftImage} type="submit">
             {submitting ? "提交中..." : `开始生成 (${generationCreditCost} 点)`}
           </button>
 

@@ -61,17 +61,18 @@ describe("HistoryPage", () => {
     const downloadLink = screen.getByRole("link", { name: "下载图片" });
     expect(downloadLink).toHaveAttribute("href", "/api/generations/task-1/image");
     expect(downloadLink).toHaveAttribute("download", "imagecreate-task-1-16-9.png");
-    await userEvent.click(screen.getByRole("button", { name: "预览图片：我的山谷" }));
+    await userEvent.click(screen.getByRole("button", { name: "查看作品详情：我的山谷" }));
 
-    const dialog = screen.getByRole("dialog", { name: "图片预览" });
+    const dialog = screen.getByRole("dialog", { name: "作品详情" });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByRole("img", { name: "我的山谷" })).toHaveAttribute(
       "src",
       "/api/generations/task-1/image",
     );
+    expect(within(dialog).getByText("提示词")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "关闭图片预览" }));
-    expect(screen.queryByRole("dialog", { name: "图片预览" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "关闭作品详情" }));
+    expect(screen.queryByRole("dialog", { name: "作品详情" })).not.toBeInTheDocument();
     // The frontend can only render tasks returned by the user-scoped API.
     expect(screen.queryByText("其他用户的图片")).not.toBeInTheDocument();
   });
@@ -133,5 +134,45 @@ describe("HistoryPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "复制提示词再生成" }));
     expect(onReusePrompt).toHaveBeenCalledWith(expect.objectContaining({ prompt: "我的山谷", ratio: "16:9" }));
+  });
+
+  test("filters history and supports image reuse", async () => {
+    const onReuseImage = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      await jsonResponse({
+        tasks: [
+          {
+            id: "task-1",
+            prompt: "收藏作品",
+            ratio: "1:1",
+            size: "1024x1024",
+            status: "succeeded",
+            image_url: "/api/generations/task-1/image",
+            created_at: "2026-04-30T08:00:00Z",
+            is_favorite: true,
+          },
+          {
+            id: "task-2",
+            prompt: "失败作品",
+            ratio: "1:1",
+            size: "1024x1024",
+            status: "failed",
+            created_at: "2026-04-30T09:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    render(<HistoryPage onReuseImage={onReuseImage} />);
+
+    await waitFor(() => expect(screen.getByText("收藏作品")).toBeInTheDocument());
+    expect(screen.getByText("失败作品")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "已收藏" }));
+    expect(screen.getByText("收藏作品")).toBeInTheDocument();
+    expect(screen.queryByText("失败作品")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "作为参考图再创作" }));
+    expect(onReuseImage).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1", imageUrl: "/api/generations/task-1/image" }));
   });
 });

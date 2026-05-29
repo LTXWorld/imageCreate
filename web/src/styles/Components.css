@@ -239,3 +239,115 @@
   color: var(--color-ink);
   transform: rotate(90deg);
 }
+
+.artwork-detail-dialog {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 420px);
+  gap: 20px;
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 72px);
+  animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.artwork-detail-media,
+.artwork-detail-panel {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+.artwork-detail-media {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.artwork-detail-image {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 96px);
+  object-fit: contain;
+}
+
+.artwork-detail-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 360px;
+  background: #f8faf8;
+}
+
+.artwork-detail-panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  max-height: calc(100vh - 72px);
+  padding: 24px;
+  overflow: auto;
+}
+
+.artwork-detail-panel h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: 24px;
+}
+
+.artwork-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.artwork-detail-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.artwork-detail-meta div {
+  border: 1px solid var(--color-jade-light);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fbfdfb;
+}
+
+.artwork-detail-meta dt {
+  color: var(--color-ink-muted);
+  font-size: 12px;
+}
+
+.artwork-detail-meta dd {
+  margin: 4px 0 0;
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.artwork-detail-prompt h4 {
+  margin: 0 0 8px;
+  color: var(--color-ink);
+}
+
+.artwork-detail-prompt p {
+  margin: 0;
+  color: var(--color-ink-muted);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 860px) {
+  .artwork-detail-dialog {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .artwork-detail-panel {
+    max-height: none;
+  }
+}
