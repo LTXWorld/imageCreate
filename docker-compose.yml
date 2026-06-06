@@ -48,6 +48,7 @@ services:
       args:
         VITE_PRIVATE_SUPPORT_QQ: ${VITE_PRIVATE_SUPPORT_QQ:-3764117425}
         VITE_PRIVATE_SUPPORT_WECHAT: ${VITE_PRIVATE_SUPPORT_WECHAT:-18028270324}
+        VITE_FAKA_URL: ${VITE_FAKA_URL:-https://faka.bfsmlt.com/}
     restart: unless-stopped
     depends_on:
       - api

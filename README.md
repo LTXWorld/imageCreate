@@ -14,6 +14,7 @@
 2. Fill `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `SESSION_SECRET`, and admin credentials.
    Optionally set `VITE_PRIVATE_SUPPORT_QQ` and `VITE_PRIVATE_SUPPORT_WECHAT`
    before building the web app to show private support contacts on the workspace.
+   Set `VITE_FAKA_URL` to control the unauthenticated homepage purchase link.
 3. Run `docker compose up --build`.
 4. Visit `http://localhost` for local Caddy or the configured domain in production.
 
@@ -44,6 +45,7 @@ WORKER_CONCURRENCY=2
 WORKER_CLAIM_DELAY_SECONDS=8
 VITE_PRIVATE_SUPPORT_QQ=<support-qq>
 VITE_PRIVATE_SUPPORT_WECHAT=<support-wechat>
+VITE_FAKA_URL=https://faka.bfsmlt.com/
 IMAGE_SIZE_PRESETS={"1:1":"1024x1024","3:4":"768x1024","4:3":"1024x768","9:16":"720x1280","16:9":"1280x720"}
 IMAGE_STORAGE_DIR=/data/images
 IMAGE_RETENTION_DAYS=30

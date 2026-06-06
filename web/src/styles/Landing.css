@@ -1,0 +1,221 @@
+.landing-shell {
+  min-height: 100vh;
+  padding: 48px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(212, 175, 55, 0.14), transparent 28%),
+    radial-gradient(circle at 82% 8%, rgba(30, 96, 74, 0.14), transparent 30%),
+    var(--grad-mist);
+}
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr);
+  align-items: center;
+  gap: 48px;
+  width: min(1180px, 100%);
+  min-height: calc(100vh - 96px);
+  margin: 0 auto;
+}
+
+.landing-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.landing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  margin-bottom: 34px;
+  color: var(--color-jade-deep);
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.landing-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  color: #ffffff;
+  background: var(--grad-jade);
+  box-shadow: var(--glow-jade);
+}
+
+.landing-copy h1 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: clamp(40px, 6vw, 68px);
+  line-height: 1.06;
+  letter-spacing: -0.04em;
+}
+
+.landing-subtitle {
+  max-width: 620px;
+  margin: 24px 0 0;
+  color: var(--color-ink-muted);
+  font-size: 18px;
+  line-height: 1.8;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 34px;
+}
+
+.landing-buy-button:hover {
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.landing-register-link {
+  margin-top: 18px;
+  padding: 0;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font-weight: 700;
+}
+
+.landing-register-link:hover {
+  color: var(--color-jade-deep);
+  text-decoration: underline;
+}
+
+.landing-feature-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  padding: 0;
+  margin: 34px 0 0;
+  list-style: none;
+}
+
+.landing-feature-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--color-jade-light);
+  border-radius: 14px;
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow: 0 8px 24px rgba(18, 61, 47, 0.05);
+}
+
+.landing-feature-list svg {
+  flex: 0 0 auto;
+  color: var(--color-gold-muted);
+}
+
+.landing-gallery-wrap {
+  padding: 26px;
+}
+
+.landing-gallery-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.landing-gallery-heading h2 {
+  margin: 0;
+  color: var(--color-jade-deep);
+  font-family: var(--font-serif);
+  font-size: 28px;
+}
+
+.landing-showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-showcase-image {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(30, 96, 74, 0.12);
+  border-radius: 18px;
+  background: var(--color-jade-light);
+  object-fit: cover;
+  box-shadow: 0 12px 28px rgba(18, 61, 47, 0.1);
+  animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.landing-showcase-image:nth-child(2),
+.landing-showcase-image:nth-child(5) {
+  transform: translateY(18px);
+}
+
+.landing-showcase-image:hover {
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 18px 38px rgba(18, 61, 47, 0.16);
+}
+
+.landing-showcase-image:nth-child(2):hover,
+.landing-showcase-image:nth-child(5):hover {
+  transform: translateY(10px) scale(1.015);
+}
+
+@media (max-width: 980px) {
+  .landing-shell {
+    padding: 28px;
+  }
+
+  .landing-hero {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing-shell {
+    padding: 20px;
+  }
+
+  .landing-copy h1 {
+    font-size: 38px;
+  }
+
+  .landing-subtitle {
+    font-size: 16px;
+  }
+
+  .landing-actions,
+  .landing-actions .primary-button,
+  .landing-actions .secondary-button {
+    width: 100%;
+  }
+
+  .landing-feature-list {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-gallery-wrap {
+    padding: 18px;
+  }
+
+  .landing-gallery-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .landing-showcase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

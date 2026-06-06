@@ -18,14 +18,21 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
-  test("shows showcase images on the unauthenticated login page", async () => {
+  test("shows purchase landing page for unauthenticated visitors", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("not authenticated"));
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "登录账号" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: /用中文描述灵感/ })).toBeInTheDocument();
     });
+
+    expect(screen.getByRole("link", { name: /购买邀请码 \/ 额度/ })).toHaveAttribute(
+      "href",
+      "https://faka.bfsmlt.com/",
+    );
+    expect(screen.getByRole("button", { name: "已有账号登录" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已有邀请码？立即注册账号" })).toBeInTheDocument();
 
     const gallery = screen.getByLabelText("生成效果展示");
     for (const altText of showcaseAltTexts) {

@@ -5,15 +5,16 @@ import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
 import { AdminPage } from "./pages/AdminPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import "./styles/app.css";
 
-type View = "login" | "register" | "workspace" | "history" | "admin";
+type View = "landing" | "login" | "register" | "workspace" | "history" | "admin";
 
 export function App() {
-  const [view, setView] = useState<View>("login");
+  const [view, setView] = useState<View>("landing");
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [workspaceDraft, setWorkspaceDraft] = useState<{ prompt: string; ratio: string; imageUrl?: string } | null>(null);
@@ -42,7 +43,7 @@ export function App() {
       .catch(() => {
         if (!active) return;
         setUser(null);
-        setView("login");
+        setView("landing");
       })
       .finally(() => {
         if (!active) return;
@@ -61,13 +62,13 @@ export function App() {
 
   const handleUnauthenticated = useCallback(() => {
     setUser(null);
-    setView("login");
+    setView("landing");
   }, []);
 
   async function handleLogout() {
     await api<{ ok: boolean }>("/api/auth/logout", { method: "POST" }).catch(() => ({ ok: false }));
     setUser(null);
-    setView("login");
+    setView("landing");
   }
 
   if (checkingSession) {
@@ -78,7 +79,9 @@ export function App() {
     );
   }
 
-  const content = view === "register" ? (
+  const content = view === "landing" ? (
+    <LandingPage onLoginClick={() => setView("login")} onRegisterClick={() => setView("register")} />
+  ) : view === "register" ? (
     <RegisterPage onRegister={handleAuthenticated} onLoginClick={() => setView("login")} />
   ) : view === "admin" ? (
     <RequireAuth

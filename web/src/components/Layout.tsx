@@ -8,8 +8,8 @@ import "../styles/Components.css";
 type LayoutProps = {
   children: ReactNode;
   user: User | null;
-  activeView: "login" | "register" | "workspace" | "admin" | "history";
-  onNavigate: (view: "login" | "register" | "workspace" | "admin" | "history") => void;
+  activeView: "landing" | "login" | "register" | "workspace" | "admin" | "history";
+  onNavigate: (view: "landing" | "login" | "register" | "workspace" | "admin" | "history") => void;
   onLogout?: () => void;
 };
 
@@ -20,7 +20,7 @@ export function Layout({
   onNavigate,
   onLogout,
 }: LayoutProps) {
-  const isAuthView = activeView === "login" || activeView === "register";
+  const isAuthView = activeView === "landing" || activeView === "login" || activeView === "register";
 
   if (isAuthView) {
     return <main>{children}</main>;
